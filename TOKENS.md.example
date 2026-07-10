@@ -1,0 +1,24 @@
+# Token- och Nyckelhantering
+
+> **VIKTIGT:** Kopiera denna fil till `TOKENS.md` (som är gitignorad) och fyll i dina riktiga värden. Ladda aldrig upp riktiga tokens till GitHub!
+
+## 1. Cloudflare Tunnel Token
+| Fält | Värde |
+|------|-------|
+| **Tunnel ID** | `[ditt-tunnel-id]` |
+| **Token** | `[din-långa-ey-token]` |
+| **Används av** | CT 101 (cloudflared) |
+
+## 2. Nginx Proxy Manager
+| Fält | Värde |
+|------|-------|
+| **E-post** | `[din-epost]` |
+| **Lösenord** | `[ditt-lösenord]` |
+
+## 3. Frigate / MQTT
+| Fält | Värde |
+|------|-------|
+| **MQTT Användare** | `mqtt-user` |
+| **MQTT Lösenord** | `[ditt-mqtt-lösenord]` |
+| **Kamera-användare**| `root` eller `admin` |
+| **Kamera-lösenord** | `[ditt-kamera-lösenord]` |

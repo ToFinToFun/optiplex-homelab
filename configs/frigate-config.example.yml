@@ -1,0 +1,65 @@
+# Exempelkonfiguration för Frigate (OptiPlex XE4 med iGPU)
+# Spara denna som config.yml i /opt/frigate/config/
+
+mqtt:
+  enabled: true
+  host: 192.168.1.X  # Byt till din HA IP
+  port: 1883
+  user: mqtt-user
+  password: "{FRIGATE_MQTT_PASSWORD}"
+
+detectors:
+  ov_0:
+    type: onnx
+    device: GPU
+
+model:
+  model_type: yolo-generic
+  width: 320
+  height: 320
+  input_tensor: nchw
+  input_dtype: float
+  path: /config/model_cache/yolov9s.onnx
+  labelmap_path: /labelmap/coco-80.txt
+
+ffmpeg:
+  hwaccel_args: preset-vaapi
+
+go2rtc:
+  streams:
+    # Exempelkamera 1 (Byt ut IP och lösenord)
+    entre_main:
+      - rtsp://root:{FRIGATE_RTSP_PASSWORD}@192.168.1.50/axis-media/media.amp?streamprofile=main
+    entre_detect:
+      - rtsp://root:{FRIGATE_RTSP_PASSWORD}@192.168.1.50/axis-media/media.amp?streamprofile=detect
+
+cameras:
+  entre:
+    enabled: true
+    ffmpeg:
+      inputs:
+        - path: rtsp://127.0.0.1:8554/entre_main
+          input_args: preset-rtsp-restream
+          roles:
+            - record
+        - path: rtsp://127.0.0.1:8554/entre_detect
+          input_args: preset-rtsp-restream
+          roles:
+            - detect
+    detect:
+      width: 640
+      height: 480
+      fps: 5
+    objects:
+      track:
+        - person
+        - car
+    record:
+      enabled: true
+      retain:
+        days: 7
+        mode: motion
+      events:
+        retain:
+          default: 14
+          mode: motion
