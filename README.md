@@ -28,6 +28,7 @@ Följ guiderna i `docs/` i nummerordning. Om du har tillgång till Manus, börja
 | # | Guide | Beskrivning |
 |---|-------|-------------|
 | 00 | [Manus-projektbeskrivning](docs/00-projektbeskrivning-manus.md) | Mall att klistra in i AI-assistenten (valfritt) |
+| 00.5 | [Förberedelser](docs/00.5-forberedelser.md) | Allt du kan göra INNAN hårdvaran kommer |
 | 01 | [BIOS-konfiguration](docs/01-bios-setup.md) | Virtualisering, iGPU, strömhantering |
 | 02 | [Proxmox-installation](docs/02-proxmox-install.md) | OS-installation + post-install |
 | 03 | [Lagringsdisk](docs/03-lagringsdisk.md) | Dedikerad disk för videoinspelningar |
