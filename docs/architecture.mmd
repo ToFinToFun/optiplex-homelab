@@ -1,0 +1,34 @@
+graph LR
+    subgraph Internet
+        U[Användare<br/>telefon/dator]
+        CF[Cloudflare<br/>Edge Network]
+    end
+
+    subgraph "Cloudflare Zero Trust"
+        A[Access OTP<br/>frigate/npm]
+    end
+
+    subgraph "Ditt Hemmanätverk"
+        subgraph "OptiPlex XE4 - Proxmox"
+            CT101[CT 101<br/>cloudflared<br/>Tunnel Connector]
+            CT102[CT 102<br/>NPM<br/>Reverse Proxy]
+            CT103[CT 103<br/>Frigate NVR<br/>Docker + iGPU]
+            VM100[VM 100<br/>Home Assistant OS<br/>+ Mosquitto MQTT]
+            DISK[(SSD<br/>Frigate Storage)]
+        end
+        CAM1[Axis Kamera 1]
+        CAM2[Axis Kamera 2]
+        CAMN[Axis Kamera N]
+    end
+
+    U -->|HTTPS| CF
+    CF -->|Access Policy| A
+    A -->|Tunnel| CT101
+    CT101 -->|HTTP| CT102
+    CT102 -->|:8123| VM100
+    CT102 -->|:5000| CT103
+    CT103 -->|RTSP| CAM1
+    CT103 -->|RTSP| CAM2
+    CT103 -->|RTSP| CAMN
+    CT103 -->|Inspelningar| DISK
+    CT103 <-->|MQTT| VM100

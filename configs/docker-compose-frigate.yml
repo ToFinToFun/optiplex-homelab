@@ -1,0 +1,31 @@
+# Docker Compose för Frigate NVR
+# Kopiera till /opt/frigate/docker-compose.yml i CT 103
+#
+# VARFÖR dessa val:
+# - network_mode: host — Frigate behöver direkt nätverksåtkomst för RTSP och WebRTC
+# - shm_size: 1gb — Frigate använder delat minne för att buffra videoframes mellan processer
+# - /dev/dri — Ger Docker-containern tillgång till iGPU (VAAPI + OpenVINO)
+# - tmpfs /tmp/cache — Snabb temporär lagring i RAM (undviker SSD-skrivningar)
+# - CAP_PERFMON — Låter Frigate visa GPU-statistik i webbgränssnittet
+
+services:
+  frigate:
+    container_name: frigate
+    image: ghcr.io/blakeblackshear/frigate:stable
+    restart: unless-stopped
+    privileged: false
+    network_mode: host
+    cap_add:
+      - CAP_PERFMON
+    shm_size: "1gb"
+    volumes:
+      - /opt/frigate/config:/config
+      - /media/frigate:/media/frigate
+      - /dev/dri:/dev/dri
+      - type: tmpfs
+        target: /tmp/cache
+        tmpfs:
+          size: 1000000000
+    environment:
+      - FRIGATE_RTSP_PASSWORD=${FRIGATE_RTSP_PASSWORD}
+      - FRIGATE_MQTT_PASSWORD=${FRIGATE_MQTT_PASSWORD}

@@ -1,5 +1,7 @@
 # Steg 8: Home Assistant & Migrering
 
+> **Varför en VM istället för LXC för Home Assistant?** Home Assistant OS (HAOS) innehåller en egen "Supervisor" som hanterar Add-ons (som Mosquitto MQTT) via Docker. Att köra Docker inuti Docker inuti LXC blir rörigt och stöds inte officiellt. Genom att köra HAOS som en virtuell maskin (VM) får vi den officiella, fullt stödda upplevelsen där allt bara fungerar med ett klick.
+
 Vi kör Home Assistant som en virtuell maskin (VM) istället för en LXC-container. Detta är det officiella och rekommenderade sättet (Home Assistant OS), vilket ger dig tillgång till "Add-ons" (t.ex. Mosquitto MQTT) och full kontroll över systemet.
 
 ## 1. Skapa Home Assistant VM (VM 100)
@@ -67,3 +69,16 @@ Frigate och Home Assistant måste prata med varandra via MQTT. Eftersom du nu k�
 2. Gå till appens inställningar och ändra den lokala IP-adressen till den nya servern.
 3. Ändra den externa URL:en till din nya domän (`https://ha.mindomän.se`).
 4. Du kan nu stänga av din gamla Home Assistant och **ta bort eventuella gamla port forward-regler** i din router. All extern trafik går nu säkert via Cloudflare Tunnel.
+
+## Verifiering
+1. Gå till Inställningar -> Enheter & Tjänster i Home Assistant. Du ska se "Frigate" och "MQTT" i listan över konfigurerade integrationer.
+2. Klicka på Frigate-integrationen. Du ska se dina kameror som enheter.
+3. Om du går framför en kamera ska sensorn för "person" i Home Assistant ändras från "Clear" till "Detected".
+
+## Vanliga problem
+
+| Problem | Lösning |
+|---------|---------|
+| MQTT-integrationen kan inte ansluta | Dubbelkolla att du skapade en användare i Home Assistant för MQTT och att du skrev in exakt samma lösenord i Frigates `docker-compose.yml`. |
+| Frigate-integrationen hittar inte servern | Säkerställ att du angav `http://[FRIGATE-IP]:5000` i integrationen. |
+| Jag kan inte ladda upp min backup-fil | Om filen är jättestor (flera gigabyte) kan det vara gamla databas-filer. Prova att packa upp tar-filen på din dator, ta bort `home-assistant_v2.db` och packa ihop den igen. |

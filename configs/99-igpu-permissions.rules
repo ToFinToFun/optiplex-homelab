@@ -1,0 +1,5 @@
+# /etc/udev/rules.d/99-igpu-permissions.rules
+# Ger LXC-containrar (Frigate) tillgång till Intel iGPU renderD128
+# Installera: kopiera denna fil till /etc/udev/rules.d/ på Proxmox-värden
+# Aktivera: udevadm control --reload-rules && udevadm trigger
+KERNEL=="renderD128", SUBSYSTEM=="drm", MODE="0666"

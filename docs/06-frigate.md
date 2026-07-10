@@ -4,6 +4,8 @@ Frigate är en AI-driven nätverksvideoinspelare (NVR). Genom att köra Frigate 
 
 ## 1. Skapa LXC-containern (CT 103)
 
+> **Varför LXC istället för VM för Frigate?** En virtuell maskin lägger till ett helt eget operativsystem mellan Frigate och hårdvaran, vilket gör det komplicerat och prestandakrävande att skicka in grafikkretsen (iGPU). I en LXC-container delas kärnan med Proxmox, vilket gör att Frigate kan använda iGPU:n med noll prestandaförlust genom enkla "bind mounts".
+
 Vi skapar containern via kommandoraden (Shell i Proxmox-noden) eftersom vi behöver lägga till specifika rättigheter för grafikkretsen och lagringsdisken.
 
 1. Öppna **Shell** för din Proxmox-nod.
@@ -146,8 +148,23 @@ apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker
    docker compose up -d
    ```
 
-5. Verifiera att det fungerar genom att surfa till `http://[Frigate-IP]:5000`. Första gången du loggar in genererar Frigate ett slumpmässigt admin-lösenord som visas i terminalen/loggen. Läs loggen med:
+5. Starta Frigate:
+   ```bash
+   docker compose up -d
+   ```
+
+## Verifiering
+1. Surfa till `http://[Frigate-IP]:5000`. Första gången du loggar in genererar Frigate ett slumpmässigt admin-lösenord som visas i terminalen/loggen. Läs loggen med:
    ```bash
    docker logs frigate | grep password
    ```
    Logga in i webbgränssnittet och byt lösenord omedelbart.
+2. Gå till "System" i vänstermenyn. Under GPU ska du se din Intel-grafikkrets, och under Detectors ska du se `ov_0` (OpenVINO).
+
+## Vanliga problem
+
+| Problem | Lösning |
+|---------|---------|
+| `vainfo` ger felmeddelande inuti containern | Dubbelkolla att du körde `chmod 666 /dev/dri/renderD128` på Proxmox-värden (inte inuti containern). Kolla också att raderna finns i `/etc/pve/lxc/103.conf`. |
+| Frigate startar om hela tiden | Läs loggen med `docker logs frigate`. Oftast beror det på ett stavfel i `config.yml` (t.ex. fel indragning/indentering). |
+| Frigate klagar på "No EdgeTPU detected" | Du har förmodligen glömt att ändra `detectors` till OpenVINO i `config.yml`. Frigate letar som standard efter en Google Coral. |

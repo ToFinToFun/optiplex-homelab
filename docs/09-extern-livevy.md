@@ -6,6 +6,8 @@ Frigate (och den inbyggda streamingmotorn `go2rtc`) stöder flera olika streamin
 
 ## Streamingtekniker
 
+> **Varför är WebRTC svårt externt?** WebRTC är byggt för videosamtal och kräver UDP-trafik för att uppnå sin extremt låga fördröjning. Cloudflare Tunnel (i gratisversionen) stöder bara TCP-trafik (HTTP/HTTPS). Därför faller WebRTC tillbaka på MSE när du är utanför hemmet.
+
 1. **WebRTC:** Ger lägst latens (under 0,5 sekunder). Problemet är att WebRTC bygger på UDP-trafik, medan Cloudflare Tunnel enbart hanterar TCP/HTTP-trafik. För att WebRTC ska fungera externt måste du antingen öppna en port i din router (vilket vi vill undvika) eller sätta upp en separat TURN-server på en VPS.
 2. **MSE (Media Source Extensions):** Ger något högre latens (ca 1-2 sekunder) men bygger på WebSockets (TCP/HTTP). **Detta fungerar perfekt rakt genom Cloudflare Tunnel** utan att du behöver öppna några portar eller sätta upp extra servrar.
 3. **JSMpeg:** Den äldsta tekniken. Drar mycket prestanda och rekommenderas inte.
@@ -45,3 +47,17 @@ go2rtc:
 ```
 
 Starta om Frigate. Nu kommer systemet att använda TURN-servern för att leverera blixtsnabb WebRTC-video även när du är på 4G/5G, helt utan att du behöver öppna några portar i din hemma-router.
+
+## Verifiering
+1. Stäng av WiFi på din telefon (så du är på 4G/5G).
+2. Öppna Home Assistant-appen.
+3. Gå till en Frigate-kamera och titta på live-videon.
+4. Om videon laddar och spelar upp mjukt (även om det tar en sekund eller två att starta) fungerar MSE korrekt via tunneln.
+
+## Vanliga problem
+
+| Problem | Lösning |
+|---------|---------|
+| Videon snurrar bara och laddar aldrig | Gå in i Frigates `config.yml` och säkerställ att du inte har tvingat `ui: live_mode: webrtc`. Den ska vara `mse` (eller lämnas tom för auto). |
+| Det står "WebRTC connection failed" | Samma som ovan. Frigate försöker tvinga WebRTC. Ändra till MSE. |
+| Det är 3-5 sekunders fördröjning | Det är normalt för MSE. Fördröjningen beror på att videon måste buffras via HTTP. Om du absolut behöver 0.5s fördröjning måste du sätta upp en TURN-server. |

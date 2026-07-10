@@ -14,7 +14,9 @@ Säkerställ att datorn kan starta från din USB-sticka när du ska installera P
 - **Boot Mode:** UEFI
 - **Boot Sequence #1:** USB Storage Device
 - **Boot Sequence #2:** Internal NVMe/SSD
-- **Secure Boot:** Disabled *(Måste vara avstängt för att Proxmox och iGPU-passthrough ska fungera)*
+- **Secure Boot:** Disabled
+
+> **Varför inaktivera Secure Boot?** Secure Boot förhindrar att osignerade drivrutiner laddas. För att Proxmox ska kunna skicka grafikkretsen (iGPU) direkt in i Frigate-containern behöver vi använda drivrutiner som ibland blockeras av Secure Boot.
 
 ## 3. Storage
 - **SATA Operation:** AHCI *(RAID On fungerar dåligt med Linux)*
@@ -22,10 +24,12 @@ Säkerställ att datorn kan starta från din USB-sticka när du ska installera P
 ## 4. Virtualisering & Säkerhet
 Dessa inställningar är helt avgörande för att kunna köra virtuella maskiner och ge Frigate direkt tillgång till grafikkretsen.
 - **Intel Virtualization (VT-x):** Enabled
-- **VT for Direct I/O (VT-d):** Enabled *(Krävs för iGPU passthrough)*
+- **VT for Direct I/O (VT-d):** Enabled
 - **Intel TXT:** Disabled
-- **DMA Protection (Pre-Boot, Kernel, Internal Port):** Disabled *(Kan annars blockera IOMMU-passthrough)*
+- **DMA Protection (Pre-Boot, Kernel, Internal Port):** Disabled
 - **TPM 2.0:** Enabled
+
+> **Varför stänga av DMA Protection?** DMA (Direct Memory Access) Protection är en säkerhetsfunktion för Windows som förhindrar att externa enheter läser minnet. I Linux och Proxmox kan detta störa IOMMU-grupperna, vilket gör att vi inte kan dela ut grafikkretsen till Frigate.
 
 ## 5. Ström & Sleep
 En server ska alltid vara vaken och starta automatiskt om strömmen går.
@@ -52,6 +56,17 @@ Dessa inställningar maximerar prestandan för AI-detektering i Frigate.
 ## 9. Boot-hastighet
 - **Warning on Error:** Disabled *(Servern ska inte stanna och vänta på att du trycker F1)*
 - **Fast Boot:** Minimal
+
+## Verifiering
+När du sparat inställningarna och startar om med USB-stickan i, ska datorn automatiskt visa Proxmox installationsmeny. Om den klagar på "No bootable device" eller startar Windows, gick något fel i Boot Sequence.
+
+## Vanliga problem
+
+| Problem | Lösning |
+|---------|---------|
+| Hittar inte "VT-d" i BIOS | Leta efter "IOMMU" eller "Intel Virtualization Technology for Directed I/O". Det kan ligga under "Advanced" eller "Security". |
+| Datorn startar Windows istället för USB | Tryck F12 upprepade gånger vid uppstart för att få upp en manuell boot-meny och välj USB-stickan därifrån. |
+| "Secure Boot Violation" visas vid uppstart | Du glömde stänga av Secure Boot i steg 2. Gå tillbaka in i BIOS och inaktivera det. |
 
 ## Nästa steg
 Spara inställningarna (Save & Exit). Datorn kommer nu att starta om. Sätt i din USB-sticka med Proxmox för att gå vidare till nästa steg.

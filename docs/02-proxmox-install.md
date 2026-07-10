@@ -24,6 +24,8 @@ Denna guide täcker installationen av Proxmox VE (Virtual Environment) 9.x och d
 
 ## Första inloggningen
 Du behöver nu inte längre ha monitor och tangentbord inkopplat till servern.
+
+> **Varför Proxmox VE?** Proxmox är en "hypervisor". Istället för att installera Windows eller Ubuntu och sedan köra program ovanpå det, är Proxmox byggt enbart för att dela ut hårdvaran till virtuella maskiner och containrar med minimal prestandaförlust (ofta under 1%). Det gör att vi kan isolera Home Assistant och Frigate från varandra.
 1. Gå till din vanliga dator och öppna en webbläsare.
 2. Surfa till `https://[DIN-SERVER-IP]:8006` (t.ex. `https://192.168.1.100:8006`).
 3. Acceptera webbläsarens säkerhetsvarning (det är normalt eftersom certifikatet är självsignerat).
@@ -31,48 +33,33 @@ Du behöver nu inte längre ha monitor och tangentbord inkopplat till servern.
 
 Du kommer att se en varning om att du saknar en giltig prenumeration. Det löser vi i nästa steg.
 
-## Post-install script (Byt till gratis-repos)
-Proxmox är inställt på att använda "Enterprise"-arkiv som kräver en betald licens. Vi måste byta till "No-Subscription"-arkiven för att kunna uppdatera systemet gratis.
+## Post-install script
+Vi har skapat ett färdigt skript som automatiserar tre viktiga saker:
+1. Byter från betalda "Enterprise"-repos till gratis "No-Subscription"-repos så du kan uppdatera systemet.
+2. Aktiverar SSD TRIM (vilket städar disken och förlänger dess livslängd avsevärt).
+3. Lägger in en regel (`udev`) som ser till att Frigate alltid får tillgång till grafikkretsen, även efter omstart.
 
 1. I Proxmox webbgränssnitt, klicka på din nod i vänstermenyn och välj sedan **Shell**.
-2. Klistra in följande skript och tryck Enter:
+2. Kör följande kommandon för att ladda ner och köra skriptet från detta repo:
 
 ```bash
-#!/bin/bash
-echo "Inaktiverar Enterprise-repos..."
-cat > /etc/apt/sources.list.d/pve-enterprise.sources << 'EOF'
-Types: deb
-URIs: https://enterprise.proxmox.com/debian/pve
-Suites: trixie
-Components: pve-enterprise
-Signed-By: /usr/share/keyrings/proxmox-archive-keyring.gpg
-Enabled: no
-EOF
-
-cat > /etc/apt/sources.list.d/ceph.sources << 'EOF'
-Types: deb
-URIs: https://enterprise.proxmox.com/debian/ceph-squid
-Suites: trixie
-Components: enterprise
-Signed-By: /usr/share/keyrings/proxmox-archive-keyring.gpg
-Enabled: no
-EOF
-
-echo "Aktiverar No-Subscription repo..."
-echo "deb http://download.proxmox.com/debian/pve trixie pve-no-subscription" > /etc/apt/sources.list.d/pve-no-subscription.list
-
-echo "Uppdaterar systemet..."
-apt update && apt upgrade -y
+apt install -y curl
+curl -sL https://raw.githubusercontent.com/ToFinToFun/optiplex-homelab/master/scripts/proxmox-post-install.sh | bash
 ```
 
-När skriptet kört klart och uppdaterat systemet, skriv `reboot` och tryck Enter för att starta om servern om en ny kernel installerades.
-
-## Aktivera SSD TRIM
-För att förlänga livslängden på din SSD, aktivera veckovis TRIM. Öppna Shell igen och kör:
-```bash
-systemctl enable fstrim.timer
-systemctl start fstrim.timer
-```
+När skriptet kört klart, skriv `reboot` och tryck Enter för att starta om servern.
 
 ## Routern (DHCP-reservation)
 Gå in i din routers gränssnitt (t.ex. Unifi Network) och leta upp servern i listan över klienter. Skapa en **DHCP-reservation** (Fixed IP) för serverns MAC-adress till samma IP-adress som du angav vid installationen. Detta garanterar att IP-adressen aldrig ändras.
+
+## Verifiering
+1. Du kan logga in på `https://[DIN-SERVER-IP]:8006` utan problem.
+2. I Proxmox Shell, skriv `apt update`. Du ska inte se några röda "Unauthorized" eller "401" fel (vilket betyder att gratis-repot fungerar).
+
+## Vanliga problem
+
+| Problem | Lösning |
+|---------|---------|
+| Webbläsaren vägrar öppna sidan pga "Osäker anslutning" | Klicka på "Avancerat" och sedan "Fortsätt till [IP-adress] (osäker)". Proxmox använder ett självsignerat certifikat vilket är normalt. |
+| Kan inte nå webbgränssnittet alls | Dubbelkolla att du skrev `https://` och port `:8006`. Kolla också i routern att servern faktiskt fått den IP-adress du tror. |
+| Post-install-skriptet ger "command not found" | Säkerställ att du skrev kommandot exakt som det står. Du kan också kopiera innehållet från `scripts/proxmox-post-install.sh` och klistra in manuellt i terminalen. |

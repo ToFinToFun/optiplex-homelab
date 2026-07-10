@@ -23,6 +23,8 @@ För att komma åt ditt homelab externt på ett säkert sätt använder vi **Clo
 ## 2. Skapa LXC-containern för Cloudflared (CT 101)
 Nu ska vi skapa en dedikerad container på Proxmox som enbart kör tunnel-mjukvaran.
 
+> **Varför en egen container?** Genom att isolera tunneln från andra tjänster kan vi starta om Home Assistant eller Frigate utan att hela nätverksanslutningen går ner. Om cloudflared kraschar påverkar det inte dina videoinspelningar.
+
 1. I Proxmox, klicka på "Create CT" (Create Container) uppe till höger.
 2. **General:** 
    - ID: `101`
@@ -74,3 +76,15 @@ Vi vill att Home Assistant ska vara öppen (den har egen inloggning), men admin-
 8. Spara. Upprepa processen för subdomänen `npm`.
 
 När du surfar till `frigate.mindomän.se` kommer Cloudflare nu att kräva din e-postadress och skicka en engångskod innan du släpps fram till ditt nätverk.
+
+## Verifiering
+1. I Cloudflare-dashboarden under Tunnels, ska din tunnel stå som "Healthy" (grön).
+2. Om du går till DNS -> Records i Cloudflare, ska du se att Cloudflare automatiskt skapat en CNAME-post för `*` som pekar på din tunnel.
+
+## Vanliga problem
+
+| Problem | Lösning |
+|---------|---------|
+| Tunneln står som "Down" i Cloudflare | Logga in i containern (CT 101) och kör `systemctl status cloudflared`. Kolla om den har nätverksåtkomst. |
+| Jag får "Bad Gateway" (502) när jag surfar | Det är normalt just nu! Tunneln försöker prata med NPM, men vi har inte installerat NPM ännu. Gå vidare till nästa steg. |
+| Cloudflare Access-mejlet kommer inte fram | Kolla skräpposten. Dubbelkolla att du skrev din egen e-postadress korrekt i policyn. |

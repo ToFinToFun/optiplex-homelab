@@ -20,6 +20,8 @@ Vi använder NPM för att det har ett enkelt, klickbaserat webbgränssnitt och s
 
 ## 2. Installera Docker och NPM
 
+> **Varför Docker inuti LXC?** Nginx Proxy Manager (och Frigate) distribueras enklast som Docker-containrar. Genom att köra Docker inuti en LXC-container får vi det bästa av två världar: Proxmox kan hantera containern som en "virtuell maskin" (backups, nätverk), och programmet får exakt den miljö det förväntar sig.
+
 Öppna Console för CT 102, logga in som `root` och kör följande kommandon:
 
 ```bash
@@ -39,20 +41,8 @@ apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker
 mkdir -p /opt/npm
 cd /opt/npm
 
-# Skapa docker-compose.yml
-cat << 'EOF' > docker-compose.yml
-services:
-  app:
-    image: 'jc21/nginx-proxy-manager:latest'
-    restart: unless-stopped
-    ports:
-      - '80:80'
-      - '81:81'
-      - '443:443'
-    volumes:
-      - ./data:/data
-      - ./letsencrypt:/etc/letsencrypt
-EOF
+# Ladda ner färdig docker-compose.yml från repot
+curl -sL https://raw.githubusercontent.com/ToFinToFun/optiplex-homelab/master/configs/docker-compose-npm.yml -o docker-compose.yml
 
 # Starta NPM
 docker compose up -d
@@ -90,3 +80,15 @@ För varje tjänst du vill nå utifrån måste du skapa en "Proxy Host" i NPM.
 - `frigate.mindomän.se` -> `[Frigate-IP]` port `5000` (Websockets: På)
 
 *(Kom ihåg att NPM och Frigate ska skyddas av Cloudflare Access enligt Steg 4, medan HA lämnas öppen för att mobilappen ska fungera smidigt).*
+
+## Verifiering
+1. Surfa till `http://[NPM-IP]:81` lokalt på ditt nätverk — du ska se inloggningsskärmen.
+2. Om du har lagt till NPM som en Proxy Host (enligt ovan), prova att surfa till `npm.mindomän.se` från din mobil (på 4G/5G). Du ska först mötas av Cloudflare Access inloggning, och därefter NPM-gränssnittet.
+
+## Vanliga problem
+
+| Problem | Lösning |
+|---------|---------|
+| `docker compose` ger felmeddelande | Kontrollera att du kör kommandot inuti mappen `/opt/npm` där `docker-compose.yml` ligger. |
+| Jag får 502 Bad Gateway via domänen | Dubbelkolla att IP-adressen i NPM:s Proxy Host exakt matchar containerns IP. Kolla också att "Scheme" är satt till HTTP, inte HTTPS. |
+| Jag får "Too many redirects" | Gå till SSL-fliken i NPM för din Proxy Host och se till att "Force SSL" är avstängt. Cloudflare hanterar SSL, NPM ska bara prata HTTP. |

@@ -1,0 +1,20 @@
+# Docker Compose för Nginx Proxy Manager
+# Kopiera till /opt/npm/docker-compose.yml i CT 102
+#
+# VARFÖR dessa val:
+# - Port 80: HTTP-trafik från Cloudflare Tunnel
+# - Port 81: NPM:s admin-gränssnitt (skyddas av Cloudflare Access)
+# - Port 443: HTTPS (används inte aktivt med tunnel, men behövs för intern SSL om önskat)
+# - Volumes: Persistent data och certifikat
+
+services:
+  app:
+    image: 'jc21/nginx-proxy-manager:latest'
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '81:81'
+      - '443:443'
+    volumes:
+      - ./data:/data
+      - ./letsencrypt:/etc/letsencrypt
