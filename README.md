@@ -50,6 +50,28 @@ Följ guiderna i `docs/` i nummerordning. Om du har tillgång till Manus, börja
 | [SETUP-CHECKLIST](SETUP-CHECKLIST.md) | Avbockningsbar lista |
 | [STATUS](STATUS.md) | Din live-status (fyll i vartefter) |
 
+### Automatisk installation (valfritt)
+
+Istället för att följa guiderna steg-för-steg manuellt kan du använda automationsskripten för att skapa alla containers och VM:er med ett enda kommando. Skripten upptäcker automatiskt vad som redan finns installerat och hoppar över det.
+
+```bash
+# SSH:a in på din Proxmox-nod och kör:
+cd /tmp && git clone https://github.com/ToFinToFun/optiplex-homelab.git
+cd optiplex-homelab/scripts
+cp setup.env.example setup.env
+nano setup.env  # Fyll i dina värden
+bash setup.sh
+```
+
+| Skript | Funktion |
+|--------|----------|
+| [scripts/setup.sh](scripts/setup.sh) | Huvudskript — inventerar, frågar, kör delskript |
+| [scripts/setup.env.example](scripts/setup.env.example) | Mall för konfiguration (IP, tokens, lösenord) |
+| [scripts/01-setup-ha.sh](scripts/01-setup-ha.sh) | Skapar Home Assistant VM (laddar ner HAOS) |
+| [scripts/02-setup-cloudflared.sh](scripts/02-setup-cloudflared.sh) | Skapar cloudflared LXC + installerar tunnel |
+| [scripts/03-setup-npm.sh](scripts/03-setup-npm.sh) | Skapar NPM LXC + Docker + Compose |
+| [scripts/04-setup-frigate.sh](scripts/04-setup-frigate.sh) | Skapar Frigate LXC + Docker + iGPU passthrough |
+
 ### Konfigurationsfiler
 
 | Fil | Beskrivning |
