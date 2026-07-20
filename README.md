@@ -50,27 +50,29 @@ Följ guiderna i `docs/` i nummerordning. Om du har tillgång till Manus, börja
 | [SETUP-CHECKLIST](SETUP-CHECKLIST.md) | Avbockningsbar lista |
 | [STATUS](STATUS.md) | Din live-status (fyll i vartefter) |
 
-### Automatisk installation (valfritt)
+### 🤖 Automatisk Installation Wizard (Ny!)
 
-Istället för att följa guiderna steg-för-steg manuellt kan du använda automationsskripten för att skapa alla containers och VM:er med ett enda kommando. Skripten upptäcker automatiskt vad som redan finns installerat och hoppar över det.
+Istället för att följa guiderna steg-för-steg manuellt kan du använda vår nya interaktiva installer-wizard. Den hanterar hela uppsättningen åt dig.
+
+Skriptet är en **fullfjädrad wizard** som:
+- Kollar BIOS-inställningar (VT-x, VT-d, iGPU)
+- Hittar automatiskt en extra SSD och formaterar den för Frigate
+- Låter dig välja mellan Frigate 0.17.2 (Stable) och 0.18.0 (Beta)
+- Verifierar iGPU-passthrough automatiskt (`vainfo`)
+- Hoppar elegant över tjänster som redan är installerade (perfekt om du redan har HA)
+- Hanterar saknade tokens graceful (installerar men väntar med start)
 
 ```bash
 # SSH:a in på din Proxmox-nod och kör:
 cd /tmp && git clone https://github.com/ToFinToFun/optiplex-homelab.git
 cd optiplex-homelab/scripts
-cp setup.env.example setup.env
-nano setup.env  # Fyll i dina värden
 bash setup.sh
 ```
+*(Skriptet ställer frågorna interaktivt. Vill du slippa svara kan du kopiera `setup.env.example` till `setup.env` först).*
 
-| Skript | Funktion |
-|--------|----------|
-| [scripts/setup.sh](scripts/setup.sh) | Huvudskript — inventerar, frågar, kör delskript |
-| [scripts/setup.env.example](scripts/setup.env.example) | Mall för konfiguration (IP, tokens, lösenord) |
-| [scripts/01-setup-ha.sh](scripts/01-setup-ha.sh) | Skapar Home Assistant VM (laddar ner HAOS) |
-| [scripts/02-setup-cloudflared.sh](scripts/02-setup-cloudflared.sh) | Skapar cloudflared LXC + installerar tunnel |
-| [scripts/03-setup-npm.sh](scripts/03-setup-npm.sh) | Skapar NPM LXC + Docker + Compose |
-| [scripts/04-setup-frigate.sh](scripts/04-setup-frigate.sh) | Skapar Frigate LXC + Docker + iGPU passthrough |
+#### Fler verktyg
+- `bash tools/update.sh` — Uppdaterar Proxmox och drar ner senaste Docker-images för alla tjänster.
+- `bash tools/uninstall.sh` — Tar bort alla skapade containers/VMs rent så du kan börja om.
 
 ### Konfigurationsfiler
 

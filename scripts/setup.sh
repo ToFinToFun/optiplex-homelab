@@ -1,153 +1,186 @@
 #!/usr/bin/env bash
 
-# OptiPlex Homelab - Huvudinstallationsskript
-# Detta skript upptäcker befintliga containers och erbjuder att installera de som saknas.
-
+# OptiPlex Homelab - Huvudinstallationsskript (Wizard)
 set -e
 
-# Färger för utskrift
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-NC='\033[0m'
+# Byt till skriptets katalog
+cd "$(dirname "$0")"
 
-echo -e "${BLUE}==================================================${NC}"
-echo -e "${BLUE}   OptiPlex Homelab - Automatisk Installation   ${NC}"
-echo -e "${BLUE}==================================================${NC}"
+# Ladda bibliotek
+source lib/ui.sh
+source lib/config.sh
+source lib/proxmox.sh
 
-# Kontrollera att vi körs på Proxmox (kräver root)
+# ==========================================
+# 1. Prereq Checks
+# ==========================================
+clear
+msg_header "OptiPlex Homelab Installer"
+
 if [ "$EUID" -ne 0 ]; then
-  echo -e "${RED}Fel: Detta skript måste köras som root på Proxmox-noden.${NC}"
-  exit 1
+    msg_err "Detta skript måste köras som root."
+    exit 1
 fi
 
-if ! command -v pct &> /dev/null; then
-  echo -e "${RED}Fel: Detta skript måste köras direkt på en Proxmox-nod.${NC}"
-  exit 1
+if ! check_is_proxmox; then
+    msg_err "Detta skript måste köras direkt på en Proxmox-nod."
+    exit 1
 fi
 
-# Ladda miljövariabler om setup.env finns, annars fråga interaktivt
-if [ -f "setup.env" ]; then
-    echo -e "${GREEN}Laddar inställningar från setup.env...${NC}"
-    source setup.env
+msg_ok "Körs som root på Proxmox"
+
+# ==========================================
+# 2. Configuration Phase
+# ==========================================
+msg_header "Konfiguration"
+
+if load_config; then
+    msg_ok "Hittade befintlig konfiguration (setup.env)"
 else
-    echo -e "${YELLOW}Ingen setup.env hittades. Vi ställer några frågor...${NC}"
+    msg_info "Ingen setup.env hittades. Låt oss ställa in grunderna."
     
-    read -p "Nätverksprefix (t.ex. 192.168.1): " NETWORK_PREFIX
-    read -p "Gateway IP (t.ex. 192.168.1.1): " GATEWAY
-    read -p "Cloudflare Tunnel Token (lämna tomt för att hoppa över): " CF_TUNNEL_TOKEN
-    read -s -p "Standardlösenord för nya containers: " CT_PASSWORD
-    echo ""
+    NETWORK_PREFIX=$(ask_string "Nätverksprefix (t.ex. 192.168.1)" "192.168.1")
+    GATEWAY=$(ask_string "Gateway IP" "${NETWORK_PREFIX}.1")
+    CF_TUNNEL_TOKEN=$(ask_string "Cloudflare Tunnel Token (tryck Enter för att hoppa över)" "")
+    CT_PASSWORD=$(ask_string "Standardlösenord för nya containers" "MySecurePassword123!" "true")
     
-    STORAGE_POOL="local-lvm"
+    STORAGE_POOL=$(find_storage_pool)
+    if [ -z "$STORAGE_POOL" ]; then
+        STORAGE_POOL="local-lvm"
+    fi
+    msg_info "Vald lagringspool för OS: $STORAGE_POOL"
+    
     IP_HA="100"
     IP_CLOUDFLARED="101"
     IP_NPM="102"
     IP_FRIGATE="103"
     
-    # Spara för framtida körningar
-    cat > setup.env << EOF
-NETWORK_PREFIX="$NETWORK_PREFIX"
-GATEWAY="$GATEWAY"
-IP_HA="$IP_HA"
-IP_CLOUDFLARED="$IP_CLOUDFLARED"
-IP_NPM="$IP_NPM"
-IP_FRIGATE="$IP_FRIGATE"
-CF_TUNNEL_TOKEN="$CF_TUNNEL_TOKEN"
-CT_PASSWORD="$CT_PASSWORD"
-STORAGE_POOL="$STORAGE_POOL"
-EOF
-    echo -e "${GREEN}Inställningar sparade till setup.env${NC}"
+    save_config
+    msg_ok "Konfiguration sparad till setup.env"
 fi
 
-# Funktion för att kolla om ett ID redan finns
-check_exists() {
-    local id=$1
-    if pct status $id &>/dev/null || qm status $id &>/dev/null; then
-        return 0 # Finns
-    else
-        return 1 # Finns inte
-    fi
-}
+# ==========================================
+# 3. Inventering och Planering
+# ==========================================
+msg_header "Inventering av systemet"
 
-echo -e "\n${BLUE}--- Inventering av systemet ---${NC}"
+# Status variabler
+DO_HOST="y"
+DO_HA="y"
+DO_CF="y"
+DO_NPM="y"
+DO_FRIGATE="y"
 
-# 1. Home Assistant (VM)
-if check_exists 100; then
-    echo -e "${YELLOW}VM 100 (Home Assistant) finns redan. Hoppar över.${NC}"
-    INSTALL_HA="n"
+# Kolla vad som redan finns
+if [ "$(get_state host_configured)" == "true" ]; then
+    msg_skip "Proxmox Host är redan konfigurerad"
+    DO_HOST="n"
 else
-    read -p "Vill du installera Home Assistant (VM 100)? [J/n] " INSTALL_HA
-    INSTALL_HA=${INSTALL_HA:-J}
+    msg_info "Proxmox Host behöver konfigureras (repos, udev)"
 fi
 
-# 2. Cloudflared (LXC)
-if check_exists 101; then
-    echo -e "${YELLOW}CT 101 (Cloudflared) finns redan. Hoppar över.${NC}"
-    INSTALL_CF="n"
+if check_id_exists $IP_HA; then
+    msg_skip "VM $IP_HA (Home Assistant) finns redan"
+    DO_HA="n"
 else
-    read -p "Vill du installera Cloudflared (CT 101)? [J/n] " INSTALL_CF
-    INSTALL_CF=${INSTALL_CF:-J}
+    msg_info "VM $IP_HA (Home Assistant) saknas"
 fi
 
-# 3. NPM (LXC)
-if check_exists 102; then
-    echo -e "${YELLOW}CT 102 (Nginx Proxy Manager) finns redan. Hoppar över.${NC}"
-    INSTALL_NPM="n"
+if check_id_exists $IP_CLOUDFLARED; then
+    msg_skip "CT $IP_CLOUDFLARED (Cloudflared) finns redan"
+    DO_CF="n"
 else
-    read -p "Vill du installera NPM (CT 102)? [J/n] " INSTALL_NPM
-    INSTALL_NPM=${INSTALL_NPM:-J}
+    msg_info "CT $IP_CLOUDFLARED (Cloudflared) saknas"
 fi
 
-# 4. Frigate (LXC)
-if check_exists 103; then
-    echo -e "${YELLOW}CT 103 (Frigate) finns redan. Hoppar över.${NC}"
-    INSTALL_FRIGATE="n"
+if check_id_exists $IP_NPM; then
+    msg_skip "CT $IP_NPM (NPM) finns redan"
+    DO_NPM="n"
 else
-    read -p "Vill du installera Frigate (CT 103)? [J/n] " INSTALL_FRIGATE
-    INSTALL_FRIGATE=${INSTALL_FRIGATE:-J}
+    msg_info "CT $IP_NPM (NPM) saknas"
 fi
 
-echo -e "\n${BLUE}--- Startar installation ---${NC}"
-
-# Hämta Debian 12 template om vi ska installera LXC
-if [[ "$INSTALL_CF" =~ ^[JjYy]$ ]] || [[ "$INSTALL_NPM" =~ ^[JjYy]$ ]] || [[ "$INSTALL_FRIGATE" =~ ^[JjYy]$ ]]; then
-    echo -e "Kontrollerar Debian 12 LXC-template..."
-    pveam update
-    TEMPLATE=$(pveam available -section system | grep debian-12-standard | awk '{print $2}' | head -n 1)
-    if [ ! -f "/var/lib/vz/template/cache/$(basename $TEMPLATE)" ]; then
-        echo -e "Laddar ner $TEMPLATE..."
-        pveam download local $TEMPLATE
-    fi
-    TEMPLATE_PATH="local:vztmpl/$(basename $TEMPLATE)"
+if check_id_exists $IP_FRIGATE; then
+    msg_skip "CT $IP_FRIGATE (Frigate) finns redan"
+    DO_FRIGATE="n"
+else
+    msg_info "CT $IP_FRIGATE (Frigate) saknas"
 fi
 
-# Exekvera valda skript
-if [[ "$INSTALL_HA" =~ ^[JjYy]$ ]]; then
-    echo -e "\n${GREEN}Installerade Home Assistant...${NC}"
-    bash ./01-setup-ha.sh
+echo ""
+if ! ask_yes_no "Vill du fortsätta och installera de saknade delarna?" "Y"; then
+    msg_info "Avbryter installationen."
+    exit 0
 fi
 
-if [[ "$INSTALL_CF" =~ ^[JjYy]$ ]]; then
-    echo -e "\n${GREEN}Installerade Cloudflared...${NC}"
-    bash ./02-setup-cloudflared.sh "$TEMPLATE_PATH"
+# ==========================================
+# 4. Execution Phase
+# ==========================================
+
+# 4.1 Storage (Disk)
+if [ "$DO_FRIGATE" == "y" ]; then
+    print_banner "Lagring" "Letar efter en dedikerad SSD för Frigate-inspelningar för att spara på OS-disken."
+    bash modules/01-storage.sh
+    source setup.env # Ladda om utifall STORAGE_POOL ändrades
 fi
 
-if [[ "$INSTALL_NPM" =~ ^[JjYy]$ ]]; then
-    echo -e "\n${GREEN}Installerade Nginx Proxy Manager...${NC}"
-    bash ./03-setup-npm.sh "$TEMPLATE_PATH"
+# 4.2 Proxmox Host
+if [ "$DO_HOST" == "y" ]; then
+    print_banner "Proxmox Host Konfiguration" "Fixar enterprise-repos, aktiverar TRIM, sätter udev-regler för iGPU och kollar BIOS-inställningar."
+    bash modules/00-proxmox-host.sh
+    set_state host_configured true
 fi
 
-if [[ "$INSTALL_FRIGATE" =~ ^[JjYy]$ ]]; then
-    echo -e "\n${GREEN}Installerade Frigate...${NC}"
-    bash ./04-setup-frigate.sh "$TEMPLATE_PATH"
+# Hämta template om vi behöver LXC
+if [ "$DO_CF" == "y" ] || [ "$DO_NPM" == "y" ] || [ "$DO_FRIGATE" == "y" ]; then
+    TEMPLATE_PATH=$(get_debian_template)
 fi
 
-echo -e "\n${GREEN}==================================================${NC}"
-echo -e "${GREEN}   Installation slutförd!                       ${NC}"
-echo -e "${GREEN}==================================================${NC}"
-echo -e "Nästa steg:"
-echo -e "1. Konfigurera NPM via http://${NETWORK_PREFIX}.${IP_NPM}:81"
-echo -e "2. Lägg till din Frigate config.yml i CT 103"
-echo -e "3. Återställ din Home Assistant backup på http://${NETWORK_PREFIX}.${IP_HA}:8123"
+# 4.3 Home Assistant
+if [ "$DO_HA" == "y" ]; then
+    print_banner "Home Assistant (VM $IP_HA)" "Laddar ner HAOS och skapar en UEFI-baserad virtuell maskin för smarta hem-styrning."
+    bash modules/02-ha-vm.sh
+fi
+
+# 4.4 Cloudflared
+if [ "$DO_CF" == "y" ]; then
+    print_banner "Cloudflared (CT $IP_CLOUDFLARED)" "Skapar en krypterad tunnel till Cloudflare. Inga portar behöver öppnas i din router."
+    bash modules/03-cloudflared.sh "$TEMPLATE_PATH"
+fi
+
+# 4.5 NPM
+if [ "$DO_NPM" == "y" ]; then
+    print_banner "Nginx Proxy Manager (CT $IP_NPM)" "Reverse proxy med snyggt GUI för att dirigera trafik till HA och Frigate internt."
+    bash modules/04-npm.sh "$TEMPLATE_PATH"
+fi
+
+# 4.6 Frigate
+if [ "$DO_FRIGATE" == "y" ]; then
+    print_banner "Frigate NVR (CT $IP_FRIGATE)" "AI-videoövervakning med hårdvaruacceleration (iGPU passthrough) och Docker."
+    bash modules/05-frigate.sh "$TEMPLATE_PATH"
+fi
+
+# ==========================================
+# 5. Summary
+# ==========================================
+clear
+msg_header "Installation Slutförd!"
+
+echo -e "${CYAN}┌─────────────┬──────────────────────────┬──────────────────────────┐${NC}"
+echo -e "${CYAN}│${NC} ${BOLD}Tjänst${NC}      ${CYAN}│${NC} ${BOLD}Lokal IP / URL${NC}           ${CYAN}│${NC} ${BOLD}Status${NC}                   ${CYAN}│${NC}"
+echo -e "${CYAN}├─────────────┼──────────────────────────┼──────────────────────────┤${NC}"
+echo -e "${CYAN}│${NC} HAOS        ${CYAN}│${NC} http://${NETWORK_PREFIX}.${IP_HA}:8123   ${CYAN}│${NC} $(check_id_exists $IP_HA && echo -e "${GREEN}Installerad${NC}        " || echo -e "${YELLOW}Hoppades över${NC}      ") ${CYAN}│${NC}"
+echo -e "${CYAN}│${NC} NPM Admin   ${CYAN}│${NC} http://${NETWORK_PREFIX}.${IP_NPM}:81      ${CYAN}│${NC} $(check_id_exists $IP_NPM && echo -e "${GREEN}Installerad${NC}        " || echo -e "${YELLOW}Hoppades över${NC}      ") ${CYAN}│${NC}"
+echo -e "${CYAN}│${NC} Frigate     ${CYAN}│${NC} http://${NETWORK_PREFIX}.${IP_FRIGATE}:5000  ${CYAN}│${NC} $(check_id_exists $IP_FRIGATE && echo -e "${GREEN}Installerad${NC}        " || echo -e "${YELLOW}Hoppades över${NC}      ") ${CYAN}│${NC}"
+echo -e "${CYAN}└─────────────┴──────────────────────────┴──────────────────────────┘${NC}"
+
+echo -e "\n${BOLD}Nästa steg:${NC}"
+if [ -z "$CF_TUNNEL_TOKEN" ] && check_id_exists $IP_CLOUDFLARED; then
+    echo -e "1. ${RED}Viktigt:${NC} Du angav ingen Cloudflare Token. Logga in på Cloudflare,"
+    echo -e "   skapa en tunnel, och kör sedan detta i Proxmox-shell:"
+    echo -e "   ${YELLOW}pct exec $IP_CLOUDFLARED -- cloudflared service install <DIN_TOKEN>${NC}"
+fi
+echo -e "2. Gå till NPM Admin (Lösenord: admin@example.com / changeme) och sätt upp dina domäner."
+echo -e "3. Lägg in din Frigate config.yml via NPM/SFTP."
+echo -e "4. Återställ din Home Assistant backup."
+echo -e "\n${BLUE}Tack för att du använder OptiPlex Homelab Automation!${NC}\n"
