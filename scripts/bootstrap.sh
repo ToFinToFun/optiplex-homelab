@@ -9,7 +9,7 @@
 #   bash <(curl -fsSL https://raw.githubusercontent.com/ToFinToFun/optiplex-homelab/master/scripts/bootstrap.sh)
 # ============================================================
 
-set -e
+# Inget set -e — vi hanterar fel explicit så skriptet aldrig dör tyst
 
 # Färger
 RED='\033[0;31m'
@@ -45,7 +45,7 @@ if ! command -v pveversion &> /dev/null; then
     exit 1
 fi
 
-echo -e "${GREEN}[OK]${NC} Kör som root på Proxmox $(pveversion --version | head -1)"
+echo -e "${GREEN}[OK]${NC} Kör som root på Proxmox $(pveversion 2>/dev/null || echo 'VE')"
 
 # ============================================================
 # Steg 2: Installera nödvändiga verktyg
@@ -77,9 +77,27 @@ PACKAGES=(
     "gnupg"             # GPG-nycklar för Docker-repo
 )
 
-# Uppdatera paketlistan
+# Uppdatera paketlistan (ta bort enterprise-repo först om det finns)
+if [ -f /etc/apt/sources.list.d/pve-enterprise.list ]; then
+    rm -f /etc/apt/sources.list.d/pve-enterprise.list
+    echo -e "  ${CYAN}→${NC} Tog bort enterprise-repo (kräver licens)"
+fi
+if [ -f /etc/apt/sources.list.d/ceph.list ]; then
+    sed -i 's/enterprise/no-subscription/g' /etc/apt/sources.list.d/ceph.list 2>/dev/null || true
+fi
+
+# Lägg till no-subscription repo om det saknas
+if ! grep -q "pve-no-subscription" /etc/apt/sources.list 2>/dev/null; then
+    # Detektera Proxmox-version för rätt codename
+    CODENAME=$(grep VERSION_CODENAME /etc/os-release | cut -d= -f2)
+    echo "deb http://download.proxmox.com/debian/pve ${CODENAME:-trixie} pve-no-subscription" >> /etc/apt/sources.list
+    echo -e "  ${CYAN}→${NC} La till pve-no-subscription repo"
+fi
+
 echo -e "  ${CYAN}→${NC} Uppdaterar paketlistor..."
-apt-get update -qq > /dev/null 2>&1
+if ! apt-get update -qq > /dev/null 2>&1; then
+    echo -e "  ${YELLOW}[VARNING]${NC} apt-get update hade varningar (fortsätter ändå)"
+fi
 
 # Installera paket (hoppa över de som redan finns)
 INSTALLED=0
@@ -121,7 +139,11 @@ else
         rm -rf "$INSTALL_DIR"
     fi
     echo -e "  ${CYAN}→${NC} Klonar repot till $INSTALL_DIR..."
-    git clone --quiet "$REPO_URL" "$INSTALL_DIR"
+    if ! git clone --quiet "$REPO_URL" "$INSTALL_DIR"; then
+        echo -e "  ${RED}[FEL]${NC} Kunde inte klona repot. Kontrollera internetanslutningen."
+        echo -e "        Testa: ${GREEN}ping -c 1 github.com${NC}"
+        exit 1
+    fi
     echo -e "  ${GREEN}[OK]${NC} Repot klonat."
 fi
 
