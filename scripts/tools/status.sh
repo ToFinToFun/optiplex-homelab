@@ -54,7 +54,24 @@ check_service $IP_CLOUDFLARED "Cloudflared   "
 check_service $IP_NPM "NPM           "
 check_service $IP_FRIGATE "Frigate       "
 
-# 3. Docker status i Frigate
+# 3. Cloudflare Tunnel Status
+echo -e "\n${BOLD}Cloudflare Tunnel Status${NC}"
+if pct status $IP_CLOUDFLARED 2>/dev/null | grep -q "running"; then
+    if pct exec $IP_CLOUDFLARED -- systemctl is-active --quiet cloudflared; then
+        # Kolla loggen för connection
+        if pct exec $IP_CLOUDFLARED -- journalctl -u cloudflared -n 50 | grep -q "Registered tunnel connection"; then
+            echo -e "  Tunnel: ${GREEN}Connected${NC}"
+        else
+            echo -e "  Tunnel: ${YELLOW}Running, but not connected (Kolla token?)${NC}"
+        fi
+    else
+        echo -e "  Tunnel: ${RED}Service stopped${NC}"
+    fi
+else
+    echo "  CT ej igång"
+fi
+
+# 4. Docker status i Frigate
 echo -e "\n${BOLD}Frigate Docker Status${NC}"
 if pct status $IP_FRIGATE 2>/dev/null | grep -q "running"; then
     FRIGATE_DOCKER=$(pct exec $IP_FRIGATE -- docker ps --format "{{.Names}}: {{.Status}}" 2>/dev/null || echo "Docker ej tillgänglig")
@@ -67,7 +84,7 @@ else
     echo "  CT ej igång"
 fi
 
-# 4. Lagring
+# 5. Lagring
 echo -e "\n${BOLD}Lagring (Proxmox Root)${NC}"
 df -h / | awk 'NR==2 {print "  Använt: " $5 " (" $3 " av " $2 ")"}'
 
