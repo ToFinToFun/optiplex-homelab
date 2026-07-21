@@ -706,16 +706,23 @@ echo -e "  ${YELLOW}════════════════════
 echo -e "" > /dev/tty
 echo -e "  Logga in på varje kameras webbgränssnitt och:" > /dev/tty
 echo -e "" > /dev/tty
-echo -e "  ${BOLD}1. Skapa användare:${NC}" > /dev/tty
+echo -e "  ${BOLD}1. Skapa RTSP-användare på varje kamera:${NC}" > /dev/tty
 echo -e "     System → Users → Lägg till:" > /dev/tty
 echo -e "     - Användarnamn: ${GREEN}${RTSP_USER}${NC}" > /dev/tty
-echo -e "     - Lösenord: (det du angav ovan)" > /dev/tty
-echo -e "     - Roll: Viewer eller Operator" > /dev/tty
+echo -e "     - Lösenord: (det du angav som gemensamt lösenord)" > /dev/tty
+echo -e "     - Roll: ${GREEN}Viewer${NC} (behöver bara läsa video)" > /dev/tty
 echo -e "" > /dev/tty
 echo -e "  ${BOLD}2. Skapa stream-profiler (Axis-kameror):${NC}" > /dev/tty
 echo -e "     Video → Stream profiles:" > /dev/tty
-echo -e "     Profil '${GREEN}main${NC}': Max upplösning, 15 fps, H.264/H.265" > /dev/tty
-echo -e "     Profil '${GREEN}detect${NC}': Låg upplösning (640x480), 5 fps, H.264" > /dev/tty
+echo -e "" > /dev/tty
+echo -e "     Profil '${GREEN}main${NC}' (inspelning + livevy):" > /dev/tty
+echo -e "       Codec: ${BOLD}H.265${NC}, Resolution: Max (t.ex. 2592×1944)" > /dev/tty
+echo -e "       Frame rate: 15, Compression: 30" > /dev/tty
+echo -e "       Zipstream: ${RED}Av${NC} (tar bort keyframes)" > /dev/tty
+echo -e "" > /dev/tty
+echo -e "     Profil '${GREEN}detect${NC}' (AI-detektering):" > /dev/tty
+echo -e "       Codec: ${BOLD}H.265${NC}, Resolution: 1280×960 (4:3)" > /dev/tty
+echo -e "       Frame rate: 5, Compression: 30" > /dev/tty
 echo -e "" > /dev/tty
 
 # Icke-Axis-varning

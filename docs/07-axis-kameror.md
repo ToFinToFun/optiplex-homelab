@@ -11,17 +11,34 @@ För att Frigate ska prestera optimalt och inte överbelasta servern, skickar vi
 
 Logga in på din Axis-kamera via dess IP-adress i webbläsaren.
 
+### 1.1 Skapa RTSP-användare
+
+Gå till **System** -> **Users** och skapa en ny användare:
+
+| Fält | Värde |
+|------|-------|
+| Användarnamn | `frigate` (eller det du valde i setup-wizarden) |
+| Lösenord | Samma som du angav som gemensamt lösenord |
+| Roll | **Viewer** (behöver bara läsa video, inte ändra inställningar) |
+
+> **Tips:** Använd samma användare och lösenord på alla kameror — då räcker en enda credential i Frigate-configen.
+
+### 1.2 Skapa stream-profiler
+
 1. Gå till **Video** -> **Stream Profiles**.
-2. Skapa en profil som heter `main`:
-   - **Resolution:** Max upplösning (t.ex. 2592x1944).
-   - **Frame rate:** 15 eller 20 fps.
-   - **Compression:** H.264 (undvik Zipstream eller "smart codecs" då de tar bort viktiga keyframes).
-   - **GOV length / I-frame interval:** Samma som din framerate (t.ex. 15 eller 20).
-3. Skapa en profil som heter `detect`:
-   - **Resolution:** 640x480 (eller 1280x720 om kameran täcker en stor yta).
-   - **Frame rate:** 5 fps.
-   - **Compression:** H.264.
-   - **GOV length / I-frame interval:** 5.
+2. Skapa en profil som heter `main` (inspelning + livevy):
+   - **Codec:** H.265 (HEVC) — halverar lagringsbehov jämfört med H.264
+   - **Resolution:** Max upplösning (t.ex. 2592×1944 för 5MP)
+   - **Frame rate:** 15 fps
+   - **Compression:** 30
+   - **Zipstream:** Av (undvik — tar bort keyframes som Frigate behöver)
+   - **GOV length / I-frame interval:** 15 (= samma som framerate)
+3. Skapa en profil som heter `detect` (AI-detektering):
+   - **Codec:** H.265
+   - **Resolution:** 1280×960 (4:3) eller 1280×720 (16:9)
+   - **Frame rate:** 5 fps
+   - **Compression:** 30
+   - **GOV length / I-frame interval:** 5
 
 *(Om du har många kameror kan du använda skriptet `scripts/axis-create-stream-profiles.sh` i detta repo för att automatisera processen via Axis API).*
 
@@ -36,9 +53,9 @@ go2rtc:
   streams:
     # Byt ut IP och lösenord mot dina egna
     kamera1_main:
-      - rtsp://root:{FRIGATE_RTSP_PASSWORD}@192.168.1.50/axis-media/media.amp?streamprofile=main
+      - rtsp://frigate:{FRIGATE_RTSP_PASSWORD}@192.168.1.50/axis-media/media.amp?streamprofile=main&videocodec=h265&audio=1
     kamera1_detect:
-      - rtsp://root:{FRIGATE_RTSP_PASSWORD}@192.168.1.50/axis-media/media.amp?streamprofile=detect
+      - rtsp://frigate:{FRIGATE_RTSP_PASSWORD}@192.168.1.50/axis-media/media.amp?streamprofile=detect&videocodec=h265
 
 cameras:
   kamera1:
@@ -54,8 +71,8 @@ cameras:
           roles:
             - detect
     detect:
-      width: 640  # Måste matcha upplösningen du satte i Axis-profilen
-      height: 480 # Måste matcha upplösningen du satte i Axis-profilen
+      width: 1280  # Måste matcha upplösningen du satte i Axis-profilen
+      height: 960  # 4:3 — ändra till 720 om du valde 1280x720
       fps: 5
     objects:
       track:
