@@ -48,6 +48,44 @@ fi
 echo -e "${GREEN}[OK]${NC} Kör som root på Proxmox $(pveversion 2>/dev/null || echo 'VE')"
 
 # ============================================================
+# Steg 1.5: Kolla Proxmox-version — erbjud uppgradering om 8.x
+# ============================================================
+PVE_VERSION=$(pveversion 2>/dev/null)
+if echo "$PVE_VERSION" | grep -q "pve-manager/8"; then
+    echo ""
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BOLD}Du kör Proxmox VE 8 — version 9 finns tillgänglig!${NC}"
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "  Proxmox VE 9 (Debian Trixie) ger:"
+    echo -e "  • Nyare kernel (6.14) med bättre hårdvarustöd"
+    echo -e "  • Förbättrad iGPU-passthrough"
+    echo -e "  • Nyare paket och säkerhetsuppdateringar"
+    echo ""
+    echo -e "  ${BOLD}Rekommendation:${NC} Uppgradera INNAN du installerar tjänster."
+    echo -e "  Uppgraderingen tar ca 15-30 min och kräver en reboot."
+    echo ""
+    echo -ne "${BOLD}Vill du uppgradera till Proxmox 9 nu? [j/N]: ${NC}"
+    read UPGRADE_ANSWER < /dev/tty
+    if [[ "$UPGRADE_ANSWER" =~ ^[jJyY]$ ]]; then
+        echo ""
+        echo -e "  ${CYAN}→${NC} Startar uppgraderingen..."
+        echo ""
+        # Ladda ner och kör upgrade-skriptet direkt
+        UPGRADE_URL="https://raw.githubusercontent.com/ToFinToFun/optiplex-homelab/master/scripts/tools/upgrade-proxmox.sh"
+        bash <(curl -fsSL "$UPGRADE_URL")
+        # Om vi kommer hit utan reboot har användaren valt att inte reboota
+        echo -e "\n${YELLOW}[INFO]${NC} Kör bootstrap igen efter reboot för att fortsätta installationen."
+        exit 0
+    else
+        echo ""
+        echo -e "  ${CYAN}[OK]${NC} Hoppar över uppgradering. Du kan köra det senare med:"
+        echo -e "        ${GREEN}cd /opt/optiplex-homelab/scripts && bash tools/upgrade-proxmox.sh${NC}"
+        echo ""
+    fi
+fi
+
+# ============================================================
 # Steg 2: Installera nödvändiga verktyg
 # ============================================================
 echo -e "\n${BOLD}Installerar nödvändiga verktyg...${NC}"
