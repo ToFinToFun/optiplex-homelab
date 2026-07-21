@@ -1,65 +1,166 @@
-# Exempelkonfiguration för Frigate (OptiPlex XE4 med iGPU)
-# Spara denna som config.yml i /opt/frigate/config/
+# ══════════════════════════════════════════════════════════════════
+# Frigate 0.18 — Exempelkonfiguration (OptiPlex XE4 med iGPU)
+# ══════════════════════════════════════════════════════════════════
+# Spara denna som /opt/frigate/config/config.yml
+# Credentials hanteras via environment-variabler i .env-filen.
+#
+# TIPS: Rader med # i början är inaktiverade. Ta bort # för att aktivera.
+# DOKUMENTATION: https://docs.frigate.video/configuration/
+# ══════════════════════════════════════════════════════════════════
 
+# --- Autentisering ---
+auth:
+  session_length: 15552000    # 180 dagar
+
+# --- Google Gemini AI (valfritt) ---
+# Skapa API-nyckel: https://aistudio.google.com/app/apikey
+#genai:
+#  gemini:
+#    provider: gemini
+#    api_key: '{FRIGATE_GEMINI_API_KEY}'
+#    model: gemini-2.5-flash-lite
+
+# --- TLS ---
+tls:
+  enabled: false
+
+# --- MQTT ---
 mqtt:
   enabled: true
-  host: 192.168.1.X  # Byt till din HA IP
+  host: 192.168.1.100         # Byt till din HA/MQTT-broker IP
   port: 1883
-  user: mqtt-user
-  password: "{FRIGATE_MQTT_PASSWORD}"
+  user: '{FRIGATE_MQTT_USER}'
+  password: '{FRIGATE_MQTT_PASSWORD}'
 
+# --- Detektorer (2x OpenVINO på Intel iGPU) ---
 detectors:
   ov_0:
-    type: onnx
+    type: openvino
+    device: GPU
+  ov_1:
+    type: openvino
     device: GPU
 
+# --- AI-modell (YOLOv9c) ---
 model:
   model_type: yolo-generic
-  width: 320
-  height: 320
   input_tensor: nchw
   input_dtype: float
-  path: /config/model_cache/yolov9s.onnx
-  labelmap_path: /labelmap/coco-80.txt
+  labelmap_path: /config/model_cache/coco-80.txt
+  path: /config/model_cache/yolov9c_openvino.xml
+  width: 320
+  height: 320
 
+# --- Semantisk sökning ---
+semantic_search:
+  enabled: true
+  model_size: large
+
+# --- FFmpeg (VAAPI hårdvaruacceleration) ---
 ffmpeg:
+  path: '5.0'
   hwaccel_args: preset-vaapi
 
+# --- Objekt ---
+objects:
+  track:
+    - person
+    - bicycle
+    - car
+    - motorcycle
+    - bus
+    - truck
+    - cat
+    - dog
+    - horse
+    - boat
+  filters:
+    person:
+      min_score: 0.5
+      threshold: 0.7
+    car:
+      min_score: 0.5
+      threshold: 0.7
+
+# --- Detektering ---
+detect:
+  stationary:
+    interval: 50
+    threshold: 20
+  max_disappeared: 750
+
+# --- Rörelse ---
+motion:
+  threshold: 25
+  contour_area: 10
+  improve_contrast: true
+
+# --- Inspelning ---
+record:
+  enabled: true
+  alerts:
+    pre_capture: 5
+    post_capture: 5
+    retain:
+      days: 30
+      mode: active_objects
+  detections:
+    pre_capture: 5
+    post_capture: 5
+    retain:
+      days: 7
+      mode: active_objects
+
+# --- Snapshots ---
+snapshots:
+  enabled: true
+  retain:
+    default: 30
+
+# --- UI ---
+ui:
+  time_format: 24hour
+
+# --- go2rtc ---
 go2rtc:
   streams:
-    # Exempelkamera 1 (Byt ut IP och lösenord)
-    entre_main:
-      - rtsp://root:{FRIGATE_RTSP_PASSWORD}@192.168.1.50/axis-media/media.amp?streamprofile=main
-    entre_detect:
-      - rtsp://root:{FRIGATE_RTSP_PASSWORD}@192.168.1.50/axis-media/media.amp?streamprofile=detect
+    # Exempelkamera (byt IP och lösenord)
+    entre:
+      - rtsp://${FRIGATE_RTSP_USER}:${FRIGATE_RTSP_PASSWORD}@192.168.1.50/axis-media/media.amp?streamprofile=main&videocodec=h265&audio=1
+    entre_sub:
+      - rtsp://${FRIGATE_RTSP_USER}:${FRIGATE_RTSP_PASSWORD}@192.168.1.50/axis-media/media.amp?streamprofile=detect&videocodec=h265
+  webrtc:
+    candidates:
+      - 192.168.1.103:8555     # Byt till din Frigate-containers IP
+      - stun:8555
+    ice_servers:
+      - urls:
+          - stun:stun.l.google.com:19302
 
+# --- Kameror ---
 cameras:
   entre:
     enabled: true
     ffmpeg:
       inputs:
-        - path: rtsp://127.0.0.1:8554/entre_main
+        - path: rtsp://127.0.0.1:8554/entre
           input_args: preset-rtsp-restream
           roles:
             - record
-        - path: rtsp://127.0.0.1:8554/entre_detect
+        - path: rtsp://127.0.0.1:8554/entre_sub
           input_args: preset-rtsp-restream
           roles:
             - detect
     detect:
-      width: 640
-      height: 480
-      fps: 5
-    objects:
-      track:
-        - person
-        - car
-    record:
       enabled: true
-      retain:
-        days: 7
-        mode: motion
-      events:
-        retain:
-          default: 14
-          mode: motion
+      width: 1280
+      height: 960
+      fps: 5
+    # Zoner — konfigurera i Frigate UI:
+    # zones:
+    #   min_zon:
+    #     coordinates: 0,0,1,0,1,1,0,1
+    #     objects: person
+    #     friendly_name: Min zon
+
+version: 0.18-0

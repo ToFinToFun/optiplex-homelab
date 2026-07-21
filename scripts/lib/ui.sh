@@ -9,6 +9,7 @@ export YELLOW='\033[1;33m'
 export RED='\033[0;31m'
 export CYAN='\033[0;36m'
 export BOLD='\033[1m'
+export DIM='\033[2m'
 export NC='\033[0m' # No Color
 
 # Ikoner
@@ -17,6 +18,10 @@ export ICON_FAIL="[${RED}✗${NC}]"
 export ICON_INFO="[${BLUE}i${NC}]"
 export ICON_WARN="[${YELLOW}!${NC}]"
 export ICON_SKIP="[${CYAN}⏭${NC}]"
+export ICON_DRY="[${DIM}DRY${NC}]"
+
+# Dry-run mode (sätts via --dry-run flagga i setup.sh)
+export DRY_RUN="${DRY_RUN:-false}"
 
 # Funktioner
 msg_info() { echo -e "${ICON_INFO} $1"; }
@@ -25,6 +30,17 @@ msg_warn() { echo -e "${ICON_WARN} ${YELLOW}$1${NC}"; }
 msg_err() { echo -e "${ICON_FAIL} ${RED}$1${NC}"; }
 msg_skip() { echo -e "${ICON_SKIP} ${CYAN}$1${NC}"; }
 msg_header() { echo -e "\n${BOLD}${BLUE}=== $1 ===${NC}"; }
+msg_dry() { echo -e "${ICON_DRY} ${DIM}(dry-run) Skulle: $1${NC}"; }
+
+# Dry-run wrapper — kör kommando om inte dry-run
+run_cmd() {
+    if [ "$DRY_RUN" == "true" ]; then
+        msg_dry "$*"
+        return 0
+    else
+        "$@"
+    fi
+}
 
 print_banner() {
     local title="$1"
@@ -39,6 +55,27 @@ print_banner() {
     done <<< "$desc"
     
     echo -e "${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}\n"
+}
+
+# ============================================================
+# Progressbar / Stegindikator
+# ============================================================
+# Användning: show_progress <current_step> <total_steps> <step_name>
+show_progress() {
+    local current=$1
+    local total=$2
+    local name="$3"
+    local width=30
+    local filled=$((current * width / total))
+    local empty=$((width - filled))
+    
+    local bar=""
+    for ((i=0; i<filled; i++)); do bar+="■"; done
+    for ((i=0; i<empty; i++)); do bar+="□"; done
+    
+    echo -e "\n  ${CYAN}┌─────────────────────────────────────────────────────────┐${NC}" > /dev/tty
+    echo -e "  ${CYAN}│${NC}  [${GREEN}${bar}${NC}] Steg ${BOLD}${current}/${total}${NC} — ${name}  ${CYAN}│${NC}" > /dev/tty
+    echo -e "  ${CYAN}└─────────────────────────────────────────────────────────┘${NC}" > /dev/tty
 }
 
 ask_yes_no() {

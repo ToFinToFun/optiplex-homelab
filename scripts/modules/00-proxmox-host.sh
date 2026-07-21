@@ -34,8 +34,38 @@ apt-get update -qq 2>&1 | grep -v "^$" || true
 # ============================================================
 # BIOS AUTO-KONFIGURATION (Dell Command Configure)
 # ============================================================
-echo "" > /dev/tty
-print_banner "BIOS-optimering (Dell Command Configure)" \
+
+# Kolla om BIOS redan konfigurerats vid en tidigare körning
+if [ "$(get_state bios_configured)" == "true" ]; then
+    msg_ok "BIOS redan konfigurerat (vid tidigare körning)"
+    
+    # Verifiera att det faktiskt tog effekt (efter reboot)
+    BIOS_VERIFIED=true
+    if ! grep -c -E '(vmx|svm)' /proc/cpuinfo > /dev/null 2>&1; then
+        BIOS_VERIFIED=false
+    fi
+    if ! dmesg 2>/dev/null | grep -i -q -e "DMAR" -e "IOMMU"; then
+        BIOS_VERIFIED=false
+    fi
+    if [ ! -e /dev/dri/renderD128 ]; then
+        BIOS_VERIFIED=false
+    fi
+    
+    if [ "$BIOS_VERIFIED" == "true" ]; then
+        msg_ok "VT-x, VT-d och iGPU verifierade — allt fungerar!"
+    else
+        msg_warn "BIOS konfigurerades men vissa inställningar verkar inte aktiva."
+        msg_info "Detta kan bero på att du inte startat om efter BIOS-ändringen."
+        if ask_yes_no "Vill du starta om nu?" "Y"; then
+            msg_info "Startar om om 5 sekunder... Kör setup.sh igen efter omstart."
+            sleep 5
+            reboot
+            exit 0
+        fi
+    fi
+else
+    echo "" > /dev/tty
+    print_banner "BIOS-optimering (Dell Command Configure)" \
 "Dell OptiPlex XE4 kan konfigureras direkt från Linux
 utan att du behöver gå in i BIOS manuellt.
 
@@ -49,7 +79,7 @@ Detta ställer in ALLA inställningar optimalt:
   • Headless-drift (inga boot-stopp utan skärm)
   • DMA Protection: Av (krävs för GPU passthrough)"
 
-if ask_yes_no "Vill du optimera BIOS-inställningarna automatiskt?" "N"; then
+    if ask_yes_no "Vill du optimera BIOS-inställningarna automatiskt?" "N"; then
 
     msg_info "Installerar Dell Command Configure..."
     
@@ -199,11 +229,25 @@ if ask_yes_no "Vill du optimera BIOS-inställningarna automatiskt?" "N"; then
         echo "" > /dev/tty
         
         set_state bios_configured true
+        
+        echo "" > /dev/tty
+        echo -e "  ${GREEN}BIOS-inställningarna är sparade men kräver en omstart.${NC}" > /dev/tty
+        echo "" > /dev/tty
+        if ask_yes_no "Vill du starta om nu? (Kör setup.sh igen efter omstart)" "Y"; then
+            msg_info "Startar om om 5 sekunder..."
+            msg_info "Efter omstart, kör: cd /opt/optiplex-homelab/scripts && bash setup.sh"
+            sleep 5
+            reboot
+            exit 0
+        else
+            msg_info "OK! Kom ihåg att starta om innan du installerar Frigate (iGPU behöver VT-d)."
+        fi
     fi
-else
-    msg_skip "BIOS-konfiguration hoppades över."
-    msg_info "Du kan ställa in BIOS manuellt — se docs/01-bios-setup.md"
-    msg_info "Eller kör detta skript igen senare och välj Ja."
+    else
+        msg_skip "BIOS-konfiguration hoppades över."
+        msg_info "Du kan ställa in BIOS manuellt — se docs/01-bios-setup.md"
+        msg_info "Eller kör detta skript igen senare och välj Ja."
+    fi
 fi
 
 # --- Hostname ---

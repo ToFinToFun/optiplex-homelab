@@ -1,0 +1,231 @@
+# ══════════════════════════════════════════════════════════════════
+# Frigate 0.18 — Komplett konfiguration
+# Genererad av OptiPlex Homelab Wizard
+# ══════════════════════════════════════════════════════════════════
+#
+# TIPS: Rader med # i början är inaktiverade. Ta bort # för att aktivera.
+#       Alla credentials hanteras via environment-variabler i docker-compose.
+#       Se: /opt/frigate/.env
+#
+# DOKUMENTATION: https://docs.frigate.video/configuration/
+# ══════════════════════════════════════════════════════════════════
+
+# --- Autentisering ---
+# Session-längd i sekunder (180 dagar = 15552000)
+auth:
+  session_length: 15552000
+
+# --- Google Gemini AI (valfritt) ---
+# Aktivera för AI-genererade beskrivningar av händelser.
+# Skapa API-nyckel: https://aistudio.google.com/app/apikey
+# Skriv nyckeln i /opt/frigate/.env som FRIGATE_GEMINI_API_KEY=din_nyckel
+#genai:
+#  gemini:
+#    provider: gemini
+#    api_key: '{FRIGATE_GEMINI_API_KEY}'
+#    model: gemini-2.5-flash-lite
+
+# --- TLS ---
+tls:
+  enabled: false
+
+# --- MQTT (Home Assistant-integration) ---
+# Frigate publicerar händelser till MQTT som HA prenumererar på.
+# Installera Mosquitto-addon i HA: Settings → Add-ons → Mosquitto broker
+mqtt:
+  enabled: true
+  host: __MQTT_HOST__
+  port: 1883
+  user: '{FRIGATE_MQTT_USER}'
+  password: '{FRIGATE_MQTT_PASSWORD}'
+
+# --- Detektorer (Intel iGPU via OpenVINO) ---
+# Två detektorer för parallell AI-inferens. Samma GPU, dubbel throughput.
+# OptiPlex XE4:s Intel UHD 770 klarar 2 detektorer utan problem.
+detectors:
+  ov_0:
+    type: openvino
+    device: GPU
+  ov_1:
+    type: openvino
+    device: GPU
+
+# --- AI-modell ---
+# YOLOv9c via OpenVINO — bästa balans mellan hastighet och precision.
+# Modellen laddas ner automatiskt vid första start.
+model:
+  model_type: yolo-generic
+  input_tensor: nchw
+  input_dtype: float
+  labelmap_path: /config/model_cache/coco-80.txt
+  path: /config/model_cache/yolov9c_openvino.xml
+  width: 320
+  height: 320
+
+# --- Semantisk sökning ---
+# Sök bland händelser med naturligt språk (t.ex. "person med hund")
+semantic_search:
+  enabled: true
+  model_size: large
+
+# --- FFmpeg (hårdvaruacceleration) ---
+# preset-vaapi använder Intel iGPU för videodekodning (sparar CPU)
+ffmpeg:
+  path: '5.0'
+  hwaccel_args: preset-vaapi
+
+# --- Objekt att spåra ---
+# Alla vanliga objekt aktiverade. Kommentera bort de du inte behöver.
+objects:
+  # Aktivera AI-genererade beskrivningar per objekt (kräver genai ovan)
+  #genai:
+  #  enabled: true
+  track:
+    - person
+    - bicycle
+    - car
+    - motorcycle
+    - bus
+    - truck
+    - cat
+    - dog
+    - horse
+    - boat          # Används även för robotgräsklippare (custom classification)
+  filters:
+    person:
+      min_score: 0.5      # Lägsta confidence för att börja tracka
+      threshold: 0.7      # Lägsta confidence för att trigga alert
+    car:
+      min_score: 0.5
+      threshold: 0.7
+    bus:
+      min_score: 0.5
+      threshold: 0.7
+    truck:
+      min_score: 0.5
+      threshold: 0.7
+    motorcycle:
+      min_score: 0.5
+      threshold: 0.7
+    bicycle:
+      min_score: 0.5
+      threshold: 0.7
+    dog:
+      min_score: 0.5
+      threshold: 0.7
+    cat:
+      min_score: 0.5
+      threshold: 0.7
+    horse:
+      min_score: 0.5
+      threshold: 0.7
+    boat:
+      min_score: 0.3      # Lägre score för robotgräsklippare
+      threshold: 0.5
+
+# --- Detektering (globala defaults) ---
+detect:
+  stationary:
+    interval: 50          # Frames mellan checks av stillastående objekt
+    threshold: 20         # Frames innan objekt anses stillastående
+  max_disappeared: 750    # Frames innan objekt tas bort (ca 2.5 min vid 5fps)
+
+# --- Rörelsedetektering (globala defaults) ---
+# Dessa kan överridas per kamera.
+motion:
+  threshold: 25           # Pixelskillnad för att räknas som rörelse (0-255)
+  contour_area: 10        # Minsta area (% av bild) för att trigga
+  improve_contrast: true  # Bättre detektering i mörker
+
+# --- Inspelning ---
+# Alerts = händelser med objekt i definierade zoner
+# Detections = alla objekt-detektioner
+record:
+  enabled: true
+  continuous:
+    days: 0               # 0 = spara INTE kontinuerligt (sparar disk)
+  motion:
+    days: 0               # 0 = spara INTE all rörelse
+  alerts:
+    pre_capture: 5        # Sekunder före händelse
+    post_capture: 5       # Sekunder efter händelse
+    retain:
+      days: 30            # Behåll alerts i 30 dagar
+      mode: active_objects
+  detections:
+    pre_capture: 5
+    post_capture: 5
+    retain:
+      days: 7             # Behåll detections i 7 dagar
+      mode: active_objects
+
+# --- Snapshots ---
+snapshots:
+  enabled: true
+  retain:
+    default: 30           # Behåll snapshots i 30 dagar
+
+# --- Ansiktsigenkänning (valfritt) ---
+# Lär Frigate känna igen ansikten. Lägg till bilder via UI.
+#face_recognition:
+#  enabled: true
+#  model_size: large
+#  min_area: 500
+#  recognition_threshold: 0.8
+#  unknown_score: 0.7
+
+# --- Nummerplåtsavläsning / LPR (valfritt) ---
+# Svenskt format: ABC 12D
+#lpr:
+#  enabled: true
+#  format: ^[A-Z]{3} [0-9]{2}[A-Z0-9]$
+#  known_plates:
+#    Min bil:
+#      - ABC123
+
+# --- Fågelklassificering (valfritt) ---
+#classification:
+#  bird:
+#    enabled: true
+
+# --- AI-review av händelser (kräver genai) ---
+#review:
+#  genai:
+#    enabled: true
+#    alerts: true
+#    detections: false
+
+# --- UI ---
+ui:
+  time_format: 24hour
+
+# --- Kameragrupper ---
+# Organisera kameror i grupper för enklare överblick i UI.
+# Anpassa efter dina kameror!
+camera_groups:
+  Alla:
+    order: 1
+    icon: LuCamera
+    cameras:
+__CAMERA_GROUP_ALL__
+
+# --- go2rtc (WebRTC streaming) ---
+# Varje kamera behöver två streams: main (inspelning) och sub (detektering)
+go2rtc:
+  streams:
+__GO2RTC_STREAMS__
+  webrtc:
+    candidates:
+      - __FRIGATE_IP__:8555
+      - stun:8555
+    ice_servers:
+      - urls:
+          - stun:stun.l.google.com:19302
+
+# --- Kameror ---
+# Varje kamera pekar på go2rtc-restreams (127.0.0.1:8554)
+# Zoner och masker konfigureras enklast i Frigate UI efter installation.
+cameras:
+__CAMERAS__
+
+version: 0.18-0

@@ -1,4 +1,4 @@
-# OptiPlex Homelab — Komplett Setup-guide
+# OptiPlex Homelab
 
 Detta repo innehåller en steg-för-steg-guide för att sätta upp en Dell OptiPlex XE4 (eller liknande Intel 12:e gen-maskin) som en kraftfull hemmaserver för **Home Assistant** och **AI-driven videoövervakning (Frigate NVR)**.
 
@@ -15,7 +15,7 @@ Hela systemet bygger på principen att **ingen port öppnas i din router**. All 
 | **Proxmox VE** | Hypervisor (kör allt) | Gratis, industristandard, LXC + VM-stöd |
 | **CT 101 — cloudflared** | Tunnel-connector | Utgående anslutning, ingen port forwarding |
 | **CT 102 — NPM** | Reverse proxy | Klickbart GUI, wildcard-routing, WebSocket-stöd |
-| **CT 103 — Frigate** | AI-videoövervakning | OpenVINO på iGPU, YOLOv9, 16+ kameror |
+| **CT 103 — Frigate** | AI-videoövervakning | OpenVINO på iGPU, YOLOv9c, 16+ kameror |
 | **VM 100 — Home Assistant** | Smart home-hub | HAOS med Add-ons (Mosquitto MQTT) |
 | **Dedikerad SSD** | Frigate-inspelningar | Skyddar OS-disken från slitage |
 
@@ -51,37 +51,85 @@ Följ guiderna i `docs/` i nummerordning. Om du har tillgång till Manus, börja
 | [SETUP-CHECKLIST](SETUP-CHECKLIST.md) | Avbockningsbar lista |
 | [STATUS](STATUS.md) | Din live-status (fyll i vartefter) |
 
-### 🤖 Automatisk Installation Wizard (Ny!)
+## Automatisk Installation Wizard
 
-Istället för att följa guiderna steg-för-steg manuellt kan du använda vår nya interaktiva installer-wizard. Den hanterar hela uppsättningen åt dig.
+Istället för att följa guiderna steg-för-steg manuellt kan du använda vår interaktiva installer-wizard. Den hanterar hela uppsättningen åt dig.
 
-Skriptet är en **fullfjädrad wizard** som:
-- Kollar BIOS-inställningar (VT-x, VT-d, iGPU)
-- Hittar automatiskt en extra SSD och formaterar den för Frigate
-- Låter dig välja mellan Frigate 0.17.2 (Stable) och 0.18.0 (Beta)
-- Verifierar iGPU-passthrough automatiskt (`vainfo`)
-- Hoppar elegant över tjänster som redan är installerade (perfekt om du redan har HA)
-- Hanterar saknade tokens graceful (installerar men väntar med start)
+### Funktioner
+
+- **Progressbar** — Visar var du är i flödet (steg X/9)
+- **Auto-nätverksdetektering** — Hittar gateway, prefix och DNS automatiskt
+- **BIOS auto-konfiguration** — Ställer in 40+ BIOS-inställningar via Dell Command Configure
+- **Resume-stöd** — Hoppar över steg som redan är klara vid nästa körning
+- **Frigate config-generator** — Skapar komplett config.yml baserat på dina kameror
+- **Google Gemini AI** — Valfritt steg för AI-genererade händelsebeskrivningar
+- **Rollback** — Erbjuder att ångra halvfärdiga installationer vid fel
+- **Dry-run mode** — Testa utan att ändra något: `bash setup.sh --dry-run`
+
+### Installation (ett kommando)
 
 ```bash
-# SSH:a in på din Proxmox-nod och kör (ett enda kommando):
+# SSH:a in på din Proxmox-nod och kör:
 bash <(curl -fsSL https://raw.githubusercontent.com/ToFinToFun/optiplex-homelab/master/scripts/bootstrap.sh)
 ```
-*(Bootstrappern installerar eventuella saknade beroenden, laddar ner repot och startar wizarden automatiskt. Vill du slippa svara interaktivt kan du kopiera `setup.env.example` till `setup.env` först).*
 
-#### Fler verktyg
-- `bash tools/status.sh` — Health-check som visar status för alla tjänster, iGPU och lagring.
-- `bash tools/usb-backup.sh` — Tar säkerhetskopia av hela systemet (Proxmox vzdump) till ett USB-minne.
-- `bash tools/update.sh` — Uppdaterar Proxmox och drar ner senaste Docker-images.
-- `bash tools/uninstall.sh` — Tar bort alla skapade containers/VMs rent så du kan börja om.
+Bootstrappern installerar eventuella saknade beroenden, laddar ner repot och startar wizarden automatiskt.
+
+### Verktyg
+
+| Kommando | Beskrivning |
+|----------|-------------|
+| `bash tools/doctor.sh` | Komplett diagnostik — kontrollerar iGPU, containers, Docker, tunnel, disk |
+| `bash tools/status.sh` | Snabb statusöversikt för alla tjänster |
+| `bash tools/usb-backup.sh` | Säkerhetskopia till USB (vzdump, exkl. Frigate-video) |
+| `bash tools/update.sh` | Uppdaterar Proxmox + Docker-images |
+| `bash tools/uninstall.sh` | Tar bort alla skapade containers/VMs rent |
+| `bash tools/upgrade-proxmox.sh` | Uppgradera Proxmox 8 → 9 |
+| `bash setup.sh --dry-run` | Visa vad som SKULLE hända utan att ändra något |
 
 ### Konfigurationsfiler
 
 | Fil | Beskrivning |
 |-----|-------------|
-| [configs/frigate-config.example.yml](configs/frigate-config.example.yml) | Frigate-mall med OpenVINO + dual streams |
-| [configs/docker-compose-frigate.yml](configs/docker-compose-frigate.yml) | Docker Compose för Frigate |
+| [configs/frigate-config-template.yml](configs/frigate-config-template.yml) | Komplett Frigate-template (används av wizarden) |
+| [configs/frigate-config.example.yml](configs/frigate-config.example.yml) | Frigate-exempelconfig med kommentarer |
+| [configs/docker-compose-frigate.yml](configs/docker-compose-frigate.yml) | Docker Compose för Frigate (host network, .env) |
 | [configs/docker-compose-npm.yml](configs/docker-compose-npm.yml) | Docker Compose för NPM |
 | [scripts/axis-create-stream-profiles.sh](scripts/axis-create-stream-profiles.sh) | Automatisera Axis-kamerakonfiguration |
 | [scripts/proxmox-post-install.sh](scripts/proxmox-post-install.sh) | Byt repos + aktivera TRIM |
 | [configs/99-igpu-permissions.rules](configs/99-igpu-permissions.rules) | udev-regel för iGPU (överlever reboot) |
+
+## Frigate Config Generator
+
+Modul 06 i wizarden genererar en **komplett Frigate config.yml** baserat på:
+
+1. **Nätverksskanning** — Hittar Axis-kameror automatiskt (eller manuell inmatning)
+2. **Interaktiv namngivning** — Ge varje kamera ett vettigt namn
+3. **Multi-channel stöd** — Axis-kameror med flera linser (t.ex. P3265-LVE)
+4. **Beprövad bas-template** — 2x OpenVINO GPU, YOLOv9c, VAAPI, semantic search
+5. **Google Gemini AI** — Valfritt steg för AI-beskrivningar
+6. **Environment-variabler** — Inga lösenord i YAML (allt i `.env`)
+
+Genererad config inkluderar:
+- go2rtc streams (main + sub per kamera)
+- Kamerablock med detect-storlek och fps
+- MQTT-integration med Home Assistant
+- Kommenterade sektioner för zoner, masker, LPR, face recognition
+
+Zoner och masker konfigureras sedan i **Frigate UI** (mycket enklare med visuell feedback).
+
+## Hårdvara
+
+| Del | Specifikation |
+|-----|---------------|
+| Dator | Dell OptiPlex XE4 SFF |
+| CPU | Intel Core i5-12500T (6C/12T) |
+| RAM | 32 GB DDR5 (2x16 dual channel) |
+| OS-disk | 256 GB NVMe SSD |
+| Frigate-disk | 500 GB+ SATA/NVMe SSD (dedikerad) |
+| iGPU | Intel UHD 770 (OpenVINO + VAAPI) |
+| Kameror | Axis (RTSP, dual stream) |
+
+## Licens
+
+MIT — Använd fritt, dela med vänner!

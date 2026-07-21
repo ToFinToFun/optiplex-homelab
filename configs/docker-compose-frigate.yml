@@ -1,5 +1,5 @@
 # Docker Compose för Frigate NVR
-# Kopiera till /opt/frigate/docker-compose.yml i CT 103
+# Kopiera till /opt/frigate/docker-compose.yml i Frigate-containern
 #
 # VARFÖR dessa val:
 # - network_mode: host — Frigate behöver direkt nätverksåtkomst för RTSP och WebRTC
@@ -7,11 +7,20 @@
 # - /dev/dri — Ger Docker-containern tillgång till iGPU (VAAPI + OpenVINO)
 # - tmpfs /tmp/cache — Snabb temporär lagring i RAM (undviker SSD-skrivningar)
 # - CAP_PERFMON — Låter Frigate visa GPU-statistik i webbgränssnittet
+#
+# CREDENTIALS:
+# Alla lösenord och API-nycklar läses från .env-filen i samma mapp.
+# Skapa /opt/frigate/.env med:
+#   FRIGATE_RTSP_USER=frigate
+#   FRIGATE_RTSP_PASSWORD=ditt_rtsp_lösenord
+#   FRIGATE_MQTT_USER=mosquitto
+#   FRIGATE_MQTT_PASSWORD=ditt_mqtt_lösenord
+#   FRIGATE_GEMINI_API_KEY=din_gemini_nyckel  (valfritt)
 
 services:
   frigate:
     container_name: frigate
-    image: ghcr.io/blakeblackshear/frigate:stable
+    image: ghcr.io/blakeblackshear/frigate:0.18.0
     restart: unless-stopped
     privileged: false
     network_mode: host
@@ -27,5 +36,8 @@ services:
         tmpfs:
           size: 1000000000
     environment:
+      - FRIGATE_RTSP_USER=${FRIGATE_RTSP_USER}
       - FRIGATE_RTSP_PASSWORD=${FRIGATE_RTSP_PASSWORD}
+      - FRIGATE_MQTT_USER=${FRIGATE_MQTT_USER}
       - FRIGATE_MQTT_PASSWORD=${FRIGATE_MQTT_PASSWORD}
+      - FRIGATE_GEMINI_API_KEY=${FRIGATE_GEMINI_API_KEY:-}
