@@ -12,10 +12,17 @@ pct create $IP_FRIGATE $TEMPLATE_PATH \
     --swap 0 \
     --net0 name=eth0,bridge=vmbr0,ip=${NETWORK_PREFIX}.${IP_FRIGATE}/24,gw=${GATEWAY} \
     --storage $STORAGE_POOL \
-    --rootfs ${STORAGE_POOL}:32 \
+    --rootfs ${STORAGE_POOL}:8 \
     --password "$CT_PASSWORD" \
-    --unprivileged 0 \
+    --unprivileged 1 \
     --features nesting=1 > /dev/null
+
+# Om vi har en dedikerad frigate-storage pool, mounta den till containern
+if pvesm status | grep -q "frigate-storage"; then
+    msg_info "Hittade frigate-storage pool, mountar den för videoinspelningar..."
+    # Skapa en virtuell disk i frigate-storage poolen (t.ex. 100GB som start, växer dynamiskt)
+    pct set $IP_FRIGATE -mp0 frigate-storage:100,mp=/opt/frigate/storage,backup=0
+fi
 
 msg_info "Konfigurerar iGPU passthrough..."
 pct set $IP_FRIGATE -lxc.cgroup2.devices.allow "c 226:0 rwm" > /dev/null
@@ -39,10 +46,10 @@ msg_info "Konfigurerar Frigate..."
 pct exec $IP_FRIGATE -- bash -c "mkdir -p /opt/frigate/config /opt/frigate/storage"
 
 # Välj version
-if ask_yes_no "Vill du använda den senaste stabila versionen (0.17.2)? Svara 'n' för att använda 0.18-beta." "Y"; then
-    FRIGATE_TAG="stable"
+if ask_yes_no "Vill du använda Frigate 0.18.0 (rekommenderas, senaste stabila)? Svara 'n' för äldre 0.17.2." "Y"; then
+    FRIGATE_TAG="0.18.0"
 else
-    FRIGATE_TAG="0.18.0-beta1"
+    FRIGATE_TAG="0.17.2"
 fi
 
 cat > /tmp/frigate-compose.yml << EOF
@@ -76,6 +83,33 @@ rm /tmp/frigate-compose.yml
 cat > /tmp/frigate-config.yml << 'EOF'
 mqtt:
   enabled: False
+
+detectors:
+  ov_0:
+    type: openvino
+    device: GPU
+
+model:
+  model_type: yolo-generic
+  input_tensor: nchw
+  input_dtype: float
+  labelmap_path: /config/model_cache/coco-80.txt
+  path: /config/model_cache/yolov9c_openvino.xml
+  width: 320
+  height: 320
+
+ffmpeg:
+  hwaccel_args: preset-vaapi
+
+record:
+  enabled: true
+  retain:
+    days: 7
+    mode: all
+
+snapshots:
+  enabled: true
+
 cameras:
   dummy_camera:
     enabled: False

@@ -38,8 +38,9 @@ if ask_yes_no "Vill du formatera $EXTRA_DISK och sätta upp den som 'frigate-sto
     
     msg_ok "Lagring konfigurerad! $EXTRA_DISK är nu monterad på /mnt/frigate-storage."
     
-    # Spara i config att vi ska använda denna pool
-    sed -i 's/STORAGE_POOL=.*/STORAGE_POOL="frigate-storage"/g' setup.env
+    # Vi ändrar INTE STORAGE_POOL i setup.env eftersom den styr OS-diskarna (som ska ligga på snabb NVMe).
+    # 05-frigate.sh kommer automatiskt hitta 'frigate-storage' och mounta den för videoinspelningar.
+    msg_ok "Lagringspool frigate-storage är nu redo att användas för videoinspelningar!"
 else
     msg_skip "Hoppar över disk-konfiguration."
 fi

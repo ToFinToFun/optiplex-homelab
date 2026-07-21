@@ -110,11 +110,17 @@ fi
 
 # Exkludera Frigates videolagring från backupen
 if pct status $IP_FRIGATE &>/dev/null; then
-    msg_info "Konfigurerar exkludering av Frigate-video (/opt/frigate/storage)..."
-    # Lägg till exclude-regel i LXC-konfigen
-    if ! grep -q "backup=0" /etc/pve/lxc/${IP_FRIGATE}.conf; then
-        # Hitta rätt mountpoint (t.ex. mp0) och sätt backup=0
-        sed -i 's/\(mp[0-9]*:.*\/opt\/frigate\/storage.*\)/\1,backup=0/' /etc/pve/lxc/${IP_FRIGATE}.conf
+    msg_info "Säkerställer att Frigate video-storage exkluderas från backup..."
+    # Hitta vilken mpX som pekar på /opt/frigate/storage
+    MP_LINE=$(grep "mp=/opt/frigate/storage" /etc/pve/lxc/${IP_FRIGATE}.conf || true)
+    if [ -n "$MP_LINE" ]; then
+        MP_KEY=$(echo "$MP_LINE" | cut -d':' -f1)
+        if ! echo "$MP_LINE" | grep -q "backup=0"; then
+            sed -i "s|^${MP_KEY}:.*|&,backup=0|" /etc/pve/lxc/${IP_FRIGATE}.conf
+        fi
+    else
+        msg_warn "Hittade ingen mount point för /opt/frigate/storage i CT $IP_FRIGATE."
+        msg_warn "Om video sparas direkt i rootfs kommer backupen bli mycket stor!"
     fi
 fi
 

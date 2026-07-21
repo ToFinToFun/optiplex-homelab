@@ -82,6 +82,35 @@ else
     msg_info "Proxmox Host behöver konfigureras (repos, udev)"
 fi
 
+# Variabler för moduler som inte har egna IDs
+DO_CAMERAS="y"
+DO_CF_DNS="y"
+DO_NPM_CONF="y"
+
+if [ "$(get_state cameras_configured)" == "true" ]; then
+    if ask_yes_no "Axis Kameror är redan konfigurerade. Vill du köra kamera-skriptet igen?" "N"; then
+        DO_CAMERAS="y"
+    else
+        DO_CAMERAS="n"
+    fi
+fi
+
+if [ "$(get_state cfdns_configured)" == "true" ]; then
+    if ask_yes_no "Cloudflare DNS är redan konfigurerat. Vill du köra DNS-skriptet igen?" "N"; then
+        DO_CF_DNS="y"
+    else
+        DO_CF_DNS="n"
+    fi
+fi
+
+if [ "$(get_state npm_configured)" == "true" ]; then
+    if ask_yes_no "NPM Auto-Config är redan körd. Vill du köra den igen?" "N"; then
+        DO_NPM_CONF="y"
+    else
+        DO_NPM_CONF="n"
+    fi
+fi
+
 if check_id_exists $IP_HA; then
     if ask_yes_no "VM $IP_HA (Home Assistant) finns redan. Vill du köra HA-skriptet igen?" "N"; then
         DO_HA="y"
@@ -156,13 +185,15 @@ if [ "$DO_HA" == "y" ]; then
     print_banner "Home Assistant (VM $IP_HA)" "Laddar ner HAOS och skapar en UEFI-baserad virtuell maskin för smarta hem-styrning."
     bash modules/02-ha-vm.sh
     # Validering
-    msg_info "Väntar på att HA ska svara på port 8123..."
-    for i in {1..10}; do
+    msg_info "Väntar på att HA ska starta (tar en stund)..."
+    msg_info "Observera: HAOS använder DHCP by default. Om din router inte ger den IP .${IP_HA}"
+    msg_info "så kommer detta test att misslyckas, men HA fungerar ändå på den IP den fick."
+    for i in {1..15}; do
         if nc -z -w 2 "${NETWORK_PREFIX}.${IP_HA}" 8123 2>/dev/null; then
-            msg_ok "HA är uppe och svarar!"
+            msg_ok "HA är uppe och svarar på ${NETWORK_PREFIX}.${IP_HA}:8123!"
             break
         fi
-        sleep 3
+        sleep 5
     done
 fi
 
@@ -191,24 +222,36 @@ fi
 if [ "$DO_FRIGATE" == "y" ]; then
     print_banner "Frigate NVR (CT $IP_FRIGATE)" "AI-videoövervakning med hårdvaruacceleration (iGPU passthrough) och Docker."
     bash modules/05-frigate.sh "$TEMPLATE_PATH"
+    # Validering
+    msg_info "Väntar på att Frigate ska svara på port 5000..."
+    for i in {1..10}; do
+        if nc -z -w 2 "${NETWORK_PREFIX}.${IP_FRIGATE}" 5000 2>/dev/null; then
+            msg_ok "Frigate är uppe och svarar!"
+            break
+        fi
+        sleep 3
+    done
 fi
 
 # 4.7 Axis Kameror
-if [ "$DO_FRIGATE" == "y" ] || [ "$(get_state host_configured)" == "true" ]; then
+if [ "$DO_CAMERAS" == "y" ]; then
     print_banner "Axis Kameror" "Skannar nätverket efter kameror och skapar Frigate-config automatiskt."
     bash modules/06-axis-cameras.sh
+    set_state cameras_configured true
 fi
 
 # 4.8 Cloudflare DNS & Routing
-if [ "$DO_CF" == "y" ] || [ "$DO_NPM" == "y" ] || [ "$(get_state host_configured)" == "true" ]; then
+if [ "$DO_CF_DNS" == "y" ]; then
     print_banner "Cloudflare DNS & Routing" "Sätter automatiskt upp domäner och tunnel-routing via Cloudflare API."
     bash modules/07-cloudflare-dns.sh
+    set_state cfdns_configured true
 fi
 
 # 4.9 NPM Auto-Config
-if [ "$DO_NPM" == "y" ] || [ "$(get_state host_configured)" == "true" ]; then
+if [ "$DO_NPM_CONF" == "y" ]; then
     print_banner "NPM Auto-Config" "Sätter upp proxy-regler i NPM automatiskt."
     bash modules/08-npm-config.sh
+    set_state npm_configured true
 fi
 
 # ==========================================

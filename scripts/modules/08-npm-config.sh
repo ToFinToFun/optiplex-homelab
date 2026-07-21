@@ -2,6 +2,7 @@
 set -e
 source setup.env
 source lib/ui.sh
+source lib/proxmox.sh
 
 msg_header "Nginx Proxy Manager Auto-Config"
 
