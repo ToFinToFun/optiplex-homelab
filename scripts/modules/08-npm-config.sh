@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-set -e
 source setup.env
 source lib/ui.sh
 source lib/proxmox.sh

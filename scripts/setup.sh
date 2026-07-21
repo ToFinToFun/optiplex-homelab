@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 
 # OptiPlex Homelab - Huvudinstallationsskript (Wizard)
-set -e
+# set -e är borttaget för att skriptet inte ska dö tyst vid fel.
+# Vi hanterar fel explicit per steg.
 
 # Byt till skriptets katalog
 cd "$(dirname "$0")"
@@ -53,10 +54,10 @@ else
     fi
     msg_info "Vald lagringspool för OS: $STORAGE_POOL"
     
-    IP_HA="100"
-    IP_CLOUDFLARED="101"
-    IP_NPM="102"
-    IP_FRIGATE="103"
+    IP_HA=$(ask_string "VM ID för Home Assistant (även sista delen av IP)" "100")
+    IP_CLOUDFLARED=$(ask_string "CT ID för Cloudflared" "101")
+    IP_NPM=$(ask_string "CT ID för NPM" "102")
+    IP_FRIGATE=$(ask_string "CT ID för Frigate" "103")
     
     save_config
     msg_ok "Konfiguration sparad till setup.env"
@@ -183,9 +184,12 @@ fi
 # 4.3 Home Assistant
 if [ "$DO_HA" == "y" ]; then
     print_banner "Home Assistant (VM $IP_HA)" "Laddar ner HAOS och skapar en UEFI-baserad virtuell maskin för smarta hem-styrning."
-    bash modules/02-ha-vm.sh
-    # Validering
-    msg_info "Väntar på att HA ska starta (tar en stund)..."
+    if ! bash modules/02-ha-vm.sh; then
+        msg_err "Ett fel uppstod under installationen av Home Assistant."
+        if ! ask_yes_no "Vill du fortsätta med nästa steg ändå?" "N"; then exit 1; fi
+    else
+        # Validering
+        msg_info "Väntar på att HA ska starta (tar en stund)..."
     msg_info "Observera: HAOS använder DHCP by default. Om din router inte ger den IP .${IP_HA}"
     msg_info "så kommer detta test att misslyckas, men HA fungerar ändå på den IP den fick."
     for i in {1..15}; do
@@ -195,20 +199,27 @@ if [ "$DO_HA" == "y" ]; then
         fi
         sleep 5
     done
+    fi
 fi
 
 # 4.4 Cloudflared
 if [ "$DO_CF" == "y" ]; then
     print_banner "Cloudflared (CT $IP_CLOUDFLARED)" "Skapar en krypterad tunnel till Cloudflare. Inga portar behöver öppnas i din router."
-    bash modules/03-cloudflared.sh "$TEMPLATE_PATH"
+    if ! bash modules/03-cloudflared.sh "$TEMPLATE_PATH"; then
+        msg_err "Ett fel uppstod under installationen av Cloudflared."
+        if ! ask_yes_no "Vill du fortsätta med nästa steg ändå?" "N"; then exit 1; fi
+    fi
 fi
 
 # 4.5 NPM
 if [ "$DO_NPM" == "y" ]; then
     print_banner "Nginx Proxy Manager (CT $IP_NPM)" "Reverse proxy med snyggt GUI för att dirigera trafik till HA och Frigate internt."
-    bash modules/04-npm.sh "$TEMPLATE_PATH"
-    # Validering
-    msg_info "Väntar på att NPM ska svara på port 81..."
+    if ! bash modules/04-npm.sh "$TEMPLATE_PATH"; then
+        msg_err "Ett fel uppstod under installationen av NPM."
+        if ! ask_yes_no "Vill du fortsätta med nästa steg ändå?" "N"; then exit 1; fi
+    else
+        # Validering
+        msg_info "Väntar på att NPM ska svara på port 81..."
     for i in {1..10}; do
         if nc -z -w 2 "${NETWORK_PREFIX}.${IP_NPM}" 81 2>/dev/null; then
             msg_ok "NPM är uppe och svarar!"
@@ -216,14 +227,18 @@ if [ "$DO_NPM" == "y" ]; then
         fi
         sleep 3
     done
+    fi
 fi
 
 # 4.6 Frigate
 if [ "$DO_FRIGATE" == "y" ]; then
     print_banner "Frigate NVR (CT $IP_FRIGATE)" "AI-videoövervakning med hårdvaruacceleration (iGPU passthrough) och Docker."
-    bash modules/05-frigate.sh "$TEMPLATE_PATH"
-    # Validering
-    msg_info "Väntar på att Frigate ska svara på port 5000..."
+    if ! bash modules/05-frigate.sh "$TEMPLATE_PATH"; then
+        msg_err "Ett fel uppstod under installationen av Frigate."
+        if ! ask_yes_no "Vill du fortsätta med nästa steg ändå?" "N"; then exit 1; fi
+    else
+        # Validering
+        msg_info "Väntar på att Frigate ska svara på port 5000..."
     for i in {1..10}; do
         if nc -z -w 2 "${NETWORK_PREFIX}.${IP_FRIGATE}" 5000 2>/dev/null; then
             msg_ok "Frigate är uppe och svarar!"
@@ -231,27 +246,37 @@ if [ "$DO_FRIGATE" == "y" ]; then
         fi
         sleep 3
     done
+    fi
 fi
 
 # 4.7 Axis Kameror
 if [ "$DO_CAMERAS" == "y" ]; then
     print_banner "Axis Kameror" "Skannar nätverket efter kameror och skapar Frigate-config automatiskt."
-    bash modules/06-axis-cameras.sh
-    set_state cameras_configured true
+    if ! bash modules/06-axis-cameras.sh; then
+        msg_err "Kamerakonfigurationen avslutades med fel."
+    else
+        set_state cameras_configured true
+    fi
 fi
 
 # 4.8 Cloudflare DNS & Routing
 if [ "$DO_CF_DNS" == "y" ]; then
     print_banner "Cloudflare DNS & Routing" "Sätter automatiskt upp domäner och tunnel-routing via Cloudflare API."
-    bash modules/07-cloudflare-dns.sh
-    set_state cfdns_configured true
+    if ! bash modules/07-cloudflare-dns.sh; then
+        msg_err "Cloudflare DNS/Routing avslutades med fel."
+    else
+        set_state cfdns_configured true
+    fi
 fi
 
 # 4.9 NPM Auto-Config
 if [ "$DO_NPM_CONF" == "y" ]; then
     print_banner "NPM Auto-Config" "Sätter upp proxy-regler i NPM automatiskt."
-    bash modules/08-npm-config.sh
-    set_state npm_configured true
+    if ! bash modules/08-npm-config.sh; then
+        msg_err "NPM Auto-Config avslutades med fel."
+    else
+        set_state npm_configured true
+    fi
 fi
 
 # ==========================================

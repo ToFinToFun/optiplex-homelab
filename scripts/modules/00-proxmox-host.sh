@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-set -e
 source lib/ui.sh
 
 msg_info "Konfigurerar Proxmox Repositories..."

@@ -47,15 +47,13 @@ find_storage_pool() {
     fi
 }
 
-find_extra_disk() {
-    # Letar efter en disk som inte används av Proxmox root/LVM
-    # Mycket förenklad heuristik: kollar lsblk efter diskar utan partitioner
-    local extra_disk=""
+find_extra_disks() {
+    # Letar efter diskar som inte används av Proxmox root/LVM
+    local extra_disks=""
     for disk in $(lsblk -nd --output NAME,TYPE | grep disk | awk '{print $1}'); do
         if ! lsblk -n /dev/$disk | grep -q "part\|lvm"; then
-            extra_disk="/dev/$disk"
-            break
+            extra_disks="$extra_disks /dev/$disk"
         fi
     done
-    echo "$extra_disk"
+    echo "$extra_disks"
 }
