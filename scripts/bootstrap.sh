@@ -112,77 +112,123 @@ if echo "$PVE_VERSION" | grep -q "pve-manager/8"; then
 fi
 
 # ============================================================
-# Steg 2: Installera nödvändiga verktyg
+# Steg 2: Verktyg — visa status och erbjud installation
 # ============================================================
-echo -e "\n${BOLD}Installerar nödvändiga verktyg...${NC}"
-echo -e "${YELLOW}(Detta tar 1-2 minuter vid första körningen)${NC}\n"
+echo -e "\n${BOLD}Verktyg som behövs:${NC}\n"
 
-# Lista över paket att installera
-PACKAGES=(
-    # Grundläggande verktyg
-    "git"               # Versionhantering, hämta/uppdatera repot
-    "curl"              # HTTP-anrop (finns oftast redan)
-    "wget"              # Nedladdning av filer
-    "unzip"             # Packa upp arkiv
-
-    # Systemövervakning
-    "htop"              # Interaktiv processövervakning
-    "lm-sensors"        # Temperaturövervakning (sensors)
-    "iotop"             # Disk I/O-övervakning
-    "net-tools"         # ifconfig, netstat etc.
-    "nmap"              # Nätverksskanning (hitta kameror)
-
-    # Intel iGPU-verktyg
-    "intel-gpu-tools"   # intel_gpu_top (övervaka GPU-last)
-    "vainfo"            # Verifiera VAAPI/iGPU-stöd
-
-    # Docker-förberedelser
-    "ca-certificates"   # SSL-certifikat
-    "gnupg"             # GPG-nycklar för Docker-repo
+# Definiera verktyg med beskrivningar
+declare -A TOOL_DESC=(
+    [git]="Versionhantering (hämta/uppdatera repot)"
+    [curl]="HTTP-anrop (ladda ner filer)"
+    [wget]="Nedladdning av filer"
+    [unzip]="Packa upp arkiv"
+    [htop]="Interaktiv processövervakning"
+    [lm-sensors]="Temperaturövervakning (sensors)"
+    [iotop]="Disk I/O-övervakning"
+    [net-tools]="ifconfig, netstat etc."
+    [nmap]="Nätverksskanning (hitta kameror)"
+    [intel-gpu-tools]="intel_gpu_top (övervaka GPU-last)"
+    [vainfo]="Verifiera VAAPI/iGPU-stöd"
+    [ca-certificates]="SSL-certifikat"
+    [gnupg]="GPG-nycklar för Docker-repo"
 )
 
-# Uppdatera paketlistan (ta bort enterprise-repo först om det finns)
-if [ -f /etc/apt/sources.list.d/pve-enterprise.list ]; then
-    rm -f /etc/apt/sources.list.d/pve-enterprise.list
-    echo -e "  ${CYAN}→${NC} Tog bort enterprise-repo (kräver licens)"
-fi
-if [ -f /etc/apt/sources.list.d/ceph.list ]; then
-    sed -i 's/enterprise/no-subscription/g' /etc/apt/sources.list.d/ceph.list 2>/dev/null || true
-fi
+# Ordning för visning
+PACKAGES=(git curl wget unzip htop lm-sensors iotop net-tools nmap intel-gpu-tools vainfo ca-certificates gnupg)
 
-# Lägg till no-subscription repo om det saknas
-if ! grep -q "pve-no-subscription" /etc/apt/sources.list 2>/dev/null; then
-    # Detektera Proxmox-version för rätt codename
-    CODENAME=$(grep VERSION_CODENAME /etc/os-release | cut -d= -f2)
-    echo "deb http://download.proxmox.com/debian/pve ${CODENAME:-trixie} pve-no-subscription" >> /etc/apt/sources.list
-    echo -e "  ${CYAN}→${NC} La till pve-no-subscription repo"
-fi
-
-echo -e "  ${CYAN}→${NC} Uppdaterar paketlistor..."
-if ! apt-get update -qq > /dev/null 2>&1; then
-    echo -e "  ${YELLOW}[VARNING]${NC} apt-get update hade varningar (fortsätter ändå)"
-fi
-
-# Installera paket (hoppa över de som redan finns)
-INSTALLED=0
-SKIPPED=0
-FAILED=0
-
+# Kolla status för varje verktyg
+declare -a MISSING=()
 for pkg in "${PACKAGES[@]}"; do
     if dpkg -l "$pkg" 2>/dev/null | grep -q "^ii"; then
-        SKIPPED=$((SKIPPED + 1))
+        echo -e "  ${GREEN}✓${NC} ${pkg}  ${CYAN}— ${TOOL_DESC[$pkg]}${NC}"
     else
-        echo -e "  ${CYAN}→${NC} Installerar ${BOLD}$pkg${NC}..."
-        if apt-get install -y -qq "$pkg" > /dev/null 2>&1; then
-            INSTALLED=$((INSTALLED + 1))
-        else
-            echo -e "  ${YELLOW}[VARNING]${NC} Kunde inte installera $pkg (ej kritiskt)"
-            FAILED=$((FAILED + 1))
-        fi
+        echo -e "  ${RED}✗${NC} ${pkg}  ${CYAN}— ${TOOL_DESC[$pkg]}${NC}  ${YELLOW}(saknas)${NC}"
+        MISSING+=("$pkg")
     fi
 done
 
-echo -e "\n${GREEN}[OK]${NC} Verktyg klara: ${INSTALLED} installerade, ${SKIPPED} fanns redan, ${FAILED} misslyckades"
+echo ""
+
+# Hantera repos innan installation
+setup_repos() {
+    if [ -f /etc/apt/sources.list.d/pve-enterprise.list ]; then
+        rm -f /etc/apt/sources.list.d/pve-enterprise.list
+        echo -e "  ${CYAN}→${NC} Tog bort enterprise-repo (kräver licens)"
+    fi
+    if [ -f /etc/apt/sources.list.d/ceph.list ]; then
+        sed -i 's/enterprise/no-subscription/g' /etc/apt/sources.list.d/ceph.list 2>/dev/null || true
+    fi
+    if ! grep -q "pve-no-subscription" /etc/apt/sources.list 2>/dev/null; then
+        CODENAME=$(grep VERSION_CODENAME /etc/os-release | cut -d= -f2)
+        echo "deb http://download.proxmox.com/debian/pve ${CODENAME:-trixie} pve-no-subscription" >> /etc/apt/sources.list
+        echo -e "  ${CYAN}→${NC} La till pve-no-subscription repo"
+    fi
+}
+
+if [ ${#MISSING[@]} -eq 0 ]; then
+    echo -e "${GREEN}[OK]${NC} Alla verktyg är redan installerade!"
+else
+    echo -e "  ${YELLOW}${#MISSING[@]} verktyg saknas:${NC} ${MISSING[*]}"
+    echo ""
+    echo -e "  ${BOLD}Vad vill du göra?${NC}"
+    echo -e "  A = Installera alla som saknas (rekommenderat)"
+    echo -e "  V = Välj vilka du vill installera"
+    echo -e "  S = Hoppa över (fortsätt utan att installera)"
+    echo ""
+    echo -ne "  ${BOLD}Välj [A/v/s]: ${NC}"
+    read TOOL_CHOICE < /dev/tty
+    
+    case "$TOOL_CHOICE" in
+        [vV])
+            # Låt användaren välja per verktyg
+            setup_repos
+            echo -e "  ${CYAN}→${NC} Uppdaterar paketlistor..."
+            apt-get update -qq > /dev/null 2>&1 || true
+            echo ""
+            for pkg in "${MISSING[@]}"; do
+                echo -ne "  Installera ${BOLD}${pkg}${NC} (${TOOL_DESC[$pkg]})? [J/n]: "
+                read INSTALL_IT < /dev/tty
+                if [[ ! "$INSTALL_IT" =~ ^[nN]$ ]]; then
+                    echo -e "  ${CYAN}→${NC} Installerar ${pkg}..."
+                    if apt-get install -y -qq "$pkg" > /dev/null 2>&1; then
+                        echo -e "  ${GREEN}✓${NC} ${pkg} installerat"
+                    else
+                        echo -e "  ${YELLOW}[VARNING]${NC} Kunde inte installera $pkg"
+                    fi
+                fi
+            done
+            ;;
+        [sS])
+            echo ""
+            echo -e "  ${CYAN}[OK]${NC} Hoppar över verktygsinstallation."
+            echo -e "  ${YELLOW}[OBS]${NC} Vissa funktioner (nätverksskanning, GPU-övervakning) kanske inte fungerar."
+            ;;
+        *)
+            # Default: installera alla
+            setup_repos
+            echo ""
+            echo -e "  ${CYAN}→${NC} Uppdaterar paketlistor..."
+            if ! apt-get update -qq > /dev/null 2>&1; then
+                echo -e "  ${YELLOW}[VARNING]${NC} apt-get update hade varningar (fortsätter ändå)"
+            fi
+            INSTALLED=0
+            FAILED=0
+            for pkg in "${MISSING[@]}"; do
+                echo -e "  ${CYAN}→${NC} Installerar ${BOLD}$pkg${NC}..."
+                if apt-get install -y -qq "$pkg" > /dev/null 2>&1; then
+                    INSTALLED=$((INSTALLED + 1))
+                else
+                    echo -e "  ${YELLOW}[VARNING]${NC} Kunde inte installera $pkg (ej kritiskt)"
+                    FAILED=$((FAILED + 1))
+                fi
+            done
+            echo -e "\n${GREEN}[OK]${NC} ${INSTALLED} verktyg installerade" 
+            [ $FAILED -gt 0 ] && echo -e "${YELLOW}[OBS]${NC} ${FAILED} misslyckades (ej kritiskt)"
+            ;;
+    esac
+fi
+
+echo ""
 
 # ============================================================
 # Steg 3: Klona eller uppdatera repot
