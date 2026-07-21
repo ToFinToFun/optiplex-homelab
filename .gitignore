@@ -1,1 +1,15 @@
+# Tokens och hemligheter
 TOKENS.md
+
+# Lokala installationsfiler (unika per maskin)
+scripts/setup.env
+scripts/.install_state
+
+# Genererade filer (unika per installation)
+TODO.md
+scripts/generated/
+generated/
+
+# Temporära filer
+*.tmp
+*.bak

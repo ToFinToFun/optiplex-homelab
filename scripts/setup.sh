@@ -131,6 +131,22 @@ msg_header "Konfiguration"
 
 if load_config; then
     msg_ok "Hittade befintlig konfiguration (setup.env)"
+    
+    # Vid omkörning: erbjud att byta lösenord
+    if [ -n "$SHARED_PASSWORD" ]; then
+        if ! ask_yes_no "Behålla befintligt gemensamt lösenord?" "Y"; then
+            SHARED_PASSWORD=$(ask_string "Nytt gemensamt lösenord" "" "true")
+            while [ -z "$SHARED_PASSWORD" ]; do
+                msg_warn "Lösenord kan inte vara tomt."
+                SHARED_PASSWORD=$(ask_string "Nytt gemensamt lösenord" "" "true")
+            done
+            CT_PASSWORD="$SHARED_PASSWORD"
+            save_config
+            chmod 600 setup.env 2>/dev/null
+            msg_ok "Lösenord uppdaterat."
+        fi
+    fi
+    CT_PASSWORD="${SHARED_PASSWORD:-$CT_PASSWORD}"
 else
     msg_info "Ingen setup.env hittades. Låt oss ställa in grunderna."
     
@@ -200,7 +216,8 @@ else
     
     if [ "$DRY_RUN" != "true" ]; then
         save_config
-        msg_ok "Konfiguration sparad till setup.env"
+        chmod 600 setup.env 2>/dev/null
+        msg_ok "Konfiguration sparad till setup.env (skyddad: chmod 600)"
     else
         msg_dry "Skulle spara konfiguration till setup.env"
     fi
@@ -455,7 +472,12 @@ if [ "$DO_FRIGATE" == "y" ]; then
     if [ ! -e /dev/dri/renderD128 ]; then
         msg_warn "iGPU (/dev/dri/renderD128) hittades INTE på hosten!"
         msg_info "Frigate behöver iGPU för AI-detektering och VAAPI."
-        msg_info "Om du just konfigurerade BIOS krävs en omstart först."
+        if [ "$(get_state needs_reboot)" == "true" ]; then
+            msg_info "Du konfigurerade BIOS tidigare men har inte startat om ännu."
+            msg_info "Starta om först, kör sedan setup.sh igen."
+        else
+            msg_info "Om du just konfigurerade BIOS krävs en omstart först."
+        fi
         if ! ask_yes_no "Vill du installera Frigate ändå (utan iGPU)?" "N"; then
             msg_skip "Hoppar över Frigate. Starta om och kör wizarden igen."
             DO_FRIGATE="n"

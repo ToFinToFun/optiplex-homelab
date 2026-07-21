@@ -240,6 +240,7 @@ Detta ställer in ALLA inställningar optimalt:
             reboot
             exit 0
         else
+            set_state needs_reboot true
             msg_info "OK! Kom ihåg att starta om innan du installerar Frigate (iGPU behöver VT-d)."
         fi
     fi
