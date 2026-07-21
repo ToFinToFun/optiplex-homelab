@@ -409,12 +409,18 @@ fi
 CURRENT_STEP=$((CURRENT_STEP + 1))
 show_progress $CURRENT_STEP $TOTAL_STEPS "Proxmox Host"
 if [ "$DO_HOST" == "y" ]; then
-    print_banner "Proxmox Host Konfiguration" "Fixar enterprise-repos, aktiverar TRIM, sätter udev-regler för iGPU och kollar BIOS-inställningar."
+    print_banner "Proxmox Host Konfiguration" "Verifierar BIOS, fixar repos, aktiverar TRIM, sätter udev-regler för iGPU."
     if [ "$DRY_RUN" == "true" ]; then
         msg_dry "Skulle konfigurera repos, TRIM, udev, BIOS"
     else
         bash modules/00-proxmox-host.sh
         set_state host_configured true
+        
+        # Erbjud Proxmox-uppdatering
+        echo "" > /dev/tty
+        if ask_yes_no "Vill du kolla efter Proxmox-uppdateringar?" "N"; then
+            bash tools/upgrade-proxmox.sh
+        fi
     fi
 fi
 

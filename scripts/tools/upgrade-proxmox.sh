@@ -54,12 +54,101 @@ if ! command -v pveversion &> /dev/null; then
 fi
 
 CURRENT_VERSION=$(pveversion 2>/dev/null)
+CURRENT_VER_NUM=$(echo "$CURRENT_VERSION" | grep -oP 'pve-manager/\K[0-9]+\.[0-9]+')
+CURRENT_MAJOR=$(echo "$CURRENT_VER_NUM" | cut -d. -f1)
+
+# Flaggor
+CHECK_ONLY=false
+for arg in "$@"; do
+    case "$arg" in
+        --check) CHECK_ONLY=true ;;
+    esac
+done
+
 echo -e "${BOLD}Nuvarande version:${NC} $CURRENT_VERSION"
 echo ""
 
-# Kolla om redan på 9.x
+# ============================================================
+# Versionskontroll och uppdateringsinfo
+# ============================================================
 if echo "$CURRENT_VERSION" | grep -q "pve-manager/9"; then
-    echo -e "${GREEN}[OK]${NC} Du kör redan Proxmox VE 9! Ingen uppgradering behövs."
+    # Redan på PVE 9 — kolla om det finns minor-uppdateringar
+    echo -e "${GREEN}[OK]${NC} Du kör Proxmox VE 9."
+    echo ""
+    
+    # Kolla tillgängliga uppdateringar
+    echo -e "${BOLD}Kollar tillgängliga uppdateringar...${NC}"
+    apt-get update -qq 2>/dev/null
+    UPGRADABLE=$(apt list --upgradable 2>/dev/null | grep -c "pve\|proxmox" || echo "0")
+    ALL_UPGRADABLE=$(apt list --upgradable 2>/dev/null | grep -v "^Listing" | wc -l)
+    
+    if [ "$ALL_UPGRADABLE" -gt 0 ]; then
+        echo ""
+        echo -e "  ${YELLOW}$ALL_UPGRADABLE paket kan uppdateras${NC} (varav $UPGRADABLE Proxmox-specifika)"
+        echo ""
+        
+        # Visa Proxmox-paket som kan uppdateras
+        if [ "$UPGRADABLE" -gt 0 ]; then
+            echo -e "  ${BOLD}Proxmox-paket med uppdateringar:${NC}"
+            apt list --upgradable 2>/dev/null | grep -i "pve\|proxmox" | while read -r line; do
+                echo -e "    ${CYAN}•${NC} $line"
+            done
+            echo ""
+        fi
+        
+        # Visa kernel-uppdateringar separat (viktigt)
+        KERNEL_UPD=$(apt list --upgradable 2>/dev/null | grep -i "pve-kernel" || true)
+        if [ -n "$KERNEL_UPD" ]; then
+            echo -e "  ${YELLOW}⚠ Kernel-uppdatering tillgänglig!${NC}"
+            echo -e "    Kräver reboot efter installation."
+            echo ""
+        fi
+        
+        if [ "$CHECK_ONLY" == "true" ]; then
+            echo -e "  Kör utan --check för att installera uppdateringarna."
+            exit 0
+        fi
+        
+        # Visa risker
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${BOLD}Risker vid uppdatering:${NC}"
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "  • VMs/containers fortsätter köra under uppdateringen"
+        if [ -n "$KERNEL_UPD" ]; then
+            echo -e "  • ${YELLOW}Kernel-uppdatering kräver reboot${NC} (VMs/CTs startar om)"
+        fi
+        echo -e "  • Minimal risk — minor-uppdateringar är bakutåtkompatibla"
+        echo ""
+        
+        echo -ne "${BOLD}Vill du installera uppdateringarna? [j/N]: ${NC}" > /dev/tty
+        read CONFIRM < /dev/tty
+        if [[ ! "$CONFIRM" =~ ^[jJyY]$ ]]; then
+            echo -e "\n${YELLOW}[AVBRUTEN]${NC} Inga ändringar gjorda."
+            exit 0
+        fi
+        
+        echo ""
+        echo -e "${BOLD}Installerar uppdateringar...${NC}"
+        apt-get dist-upgrade -y 2>&1 | tail -5
+        echo ""
+        
+        if [ -n "$KERNEL_UPD" ]; then
+            echo -e "${YELLOW}[OBS]${NC} Ny kernel installerad. Reboot krävs."
+            echo -ne "${BOLD}Vill du starta om nu? [j/N]: ${NC}" > /dev/tty
+            read REBOOT_CONFIRM < /dev/tty
+            if [[ "$REBOOT_CONFIRM" =~ ^[jJyY]$ ]]; then
+                echo -e "  Startar om om 5 sekunder..."
+                sleep 5
+                reboot
+            else
+                echo -e "  OK. Starta om manuellt när det passar: ${GREEN}reboot${NC}"
+            fi
+        else
+            echo -e "${GREEN}[OK]${NC} Uppdatering klar! Ingen reboot behövs."
+        fi
+    else
+        echo -e "  ${GREEN}✓ Allt är uppdaterat!${NC} Inga nya paket tillgängliga."
+    fi
     exit 0
 fi
 
@@ -71,11 +160,36 @@ if ! echo "$CURRENT_VERSION" | grep -q "pve-manager/8"; then
 fi
 
 # ============================================================
-# Förklaring
+# PVE 8 → 9: Visa key features och risker
 # ============================================================
-echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BOLD}Proxmox VE 9 — Nyheter och förbättringar${NC}"
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+echo -e "  ${GREEN}Kernel:${NC}      6.14 (från 6.8) — bättre hårdvarustöd"
+echo -e "  ${GREEN}Debian:${NC}      Trixie (från Bookworm) — nyare paket"
+echo -e "  ${GREEN}QEMU:${NC}        9.2 — förbättrad VM-prestanda"
+echo -e "  ${GREEN}LXC:${NC}         6.0 — nyare container-runtime"
+echo -e "  ${GREEN}ZFS:${NC}         2.3 — snabbare, stabilare"
+echo -e "  ${GREEN}Ceph:${NC}        Squid (19.x) — ny generation"
+echo -e "  ${GREEN}iGPU:${NC}        Förbättrad passthrough för Intel 12th-14th gen"
+echo -e "  ${GREEN}Backup:${NC}      Proxmox Backup integration förbättrad"
+echo -e "  ${GREEN}GUI:${NC}         Uppdaterat webgränssnitt med nya funktioner"
+echo -e "  ${GREEN}Säkerhet:${NC}    Nyare OpenSSL, systemd, och säkerhetspatchar"
+echo ""
+
+if [ "$CHECK_ONLY" == "true" ]; then
+    echo -e "  ${BOLD}Installerad:${NC} PVE $CURRENT_VER_NUM (Debian Bookworm)"
+    echo -e "  ${BOLD}Tillgänglig:${NC} PVE 9.x (Debian Trixie)"
+    echo ""
+    echo -e "  Kör utan --check för att starta uppgraderingen."
+    echo -e "  Uppgraderingen tar ca 15-30 min och kräver en reboot."
+    exit 0
+fi
+
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${BOLD}Vad händer under uppgraderingen?${NC}"
-echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 echo -e "  1. Vi stoppar alla VMs och containers (säkrast)"
 echo -e "  2. Vi uppdaterar Proxmox 8 till senaste 8.4.x"
@@ -89,7 +203,7 @@ echo ""
 echo -e "  ${GREEN}Dina VMs och containers påverkas INTE${NC} — de finns kvar"
 echo -e "  efter uppgraderingen precis som innan."
 echo ""
-echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 
 # ============================================================

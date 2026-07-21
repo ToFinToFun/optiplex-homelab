@@ -35,34 +35,109 @@ apt-get update -qq 2>&1 | grep -v "^$" || true
 # BIOS AUTO-KONFIGURATION (Dell Command Configure)
 # ============================================================
 
-# Kolla om BIOS redan konfigurerats vid en tidigare körning
-if [ "$(get_state bios_configured)" == "true" ]; then
-    msg_ok "BIOS redan konfigurerat (vid tidigare körning)"
-    
-    # Verifiera att det faktiskt tog effekt (efter reboot)
-    BIOS_VERIFIED=true
-    if ! grep -c -E '(vmx|svm)' /proc/cpuinfo > /dev/null 2>&1; then
-        BIOS_VERIFIED=false
+# ============================================================
+# BIOS VERIFIERING (körs ALLTID — visar aktuell status)
+# ============================================================
+echo "" > /dev/tty
+echo -e "  ${BOLD}── BIOS & Hårdvarustatus ──${NC}" > /dev/tty
+echo "" > /dev/tty
+
+BIOS_ISSUES=0
+
+# VT-x
+if grep -c -E '(vmx|svm)' /proc/cpuinfo > /dev/null 2>&1; then
+    echo -e "  ${GREEN}✓${NC} VT-x (Virtualisering) — aktiverat" > /dev/tty
+else
+    echo -e "  ${RED}✗${NC} VT-x (Virtualisering) — EJ aktiverat" > /dev/tty
+    BIOS_ISSUES=$((BIOS_ISSUES + 1))
+fi
+
+# VT-d / IOMMU
+if dmesg 2>/dev/null | grep -i -q -e "DMAR" -e "IOMMU"; then
+    echo -e "  ${GREEN}✓${NC} VT-d (IOMMU/Passthrough) — aktiverat" > /dev/tty
+else
+    echo -e "  ${RED}✗${NC} VT-d (IOMMU/Passthrough) — EJ aktiverat" > /dev/tty
+    BIOS_ISSUES=$((BIOS_ISSUES + 1))
+fi
+
+# iGPU
+if [ -e /dev/dri/renderD128 ]; then
+    VAAPI_INFO=""
+    if command -v vainfo &>/dev/null; then
+        VAAPI_INFO=$(vainfo 2>/dev/null | grep "vainfo: Driver" | head -1 | sed 's/.*: //')
     fi
-    if ! dmesg 2>/dev/null | grep -i -q -e "DMAR" -e "IOMMU"; then
-        BIOS_VERIFIED=false
-    fi
-    if [ ! -e /dev/dri/renderD128 ]; then
-        BIOS_VERIFIED=false
-    fi
-    
-    if [ "$BIOS_VERIFIED" == "true" ]; then
-        msg_ok "VT-x, VT-d och iGPU verifierade — allt fungerar!"
+    echo -e "  ${GREEN}✓${NC} Intel iGPU — hittad (/dev/dri/renderD128) ${VAAPI_INFO:+[$VAAPI_INFO]}" > /dev/tty
+else
+    echo -e "  ${RED}✗${NC} Intel iGPU — EJ hittad" > /dev/tty
+    BIOS_ISSUES=$((BIOS_ISSUES + 1))
+fi
+
+# WoL
+PRIMARY_NIC_CHECK=$(ip route show default 2>/dev/null | awk '/default/{print $5}' | head -1)
+if [ -n "$PRIMARY_NIC_CHECK" ] && command -v ethtool &>/dev/null; then
+    WOL_CHECK=$(ethtool "$PRIMARY_NIC_CHECK" 2>/dev/null | grep "Wake-on:" | tail -1 | awk '{print $2}')
+    if echo "$WOL_CHECK" | grep -q "g"; then
+        echo -e "  ${GREEN}✓${NC} Wake-on-LAN — aktiverat ($PRIMARY_NIC_CHECK)" > /dev/tty
     else
-        msg_warn "BIOS konfigurerades men vissa inställningar verkar inte aktiva."
-        msg_info "Detta kan bero på att du inte startat om efter BIOS-ändringen."
+        echo -e "  ${YELLOW}⚠${NC} Wake-on-LAN — EJ aktiverat" > /dev/tty
+    fi
+fi
+
+# TRIM
+if systemctl is-active fstrim.timer &>/dev/null; then
+    echo -e "  ${GREEN}✓${NC} SSD TRIM — aktiverat (veckovis)" > /dev/tty
+else
+    echo -e "  ${YELLOW}⚠${NC} SSD TRIM — ej aktiverat" > /dev/tty
+fi
+
+echo "" > /dev/tty
+
+# Beslut baserat på status
+if [ $BIOS_ISSUES -eq 0 ]; then
+    msg_ok "Alla kritiska BIOS-inställningar verifierade!"
+    
+    if [ "$(get_state bios_configured)" == "true" ]; then
+        # Redan konfigurerat och allt fungerar
+        if ask_yes_no "Vill du köra BIOS-konfiguration ändå (t.ex. ändra enskild inställning)?" "N"; then
+            RUN_BIOS_CONFIG=true
+        else
+            RUN_BIOS_CONFIG=false
+        fi
+    else
+        # Aldrig konfigurerat men allt fungerar (manuellt inställt)
+        msg_info "BIOS verkar vara korrekt inställt (manuellt eller från fabrik)."
+        if ask_yes_no "Vill du köra automatisk BIOS-optimering ändå?" "N"; then
+            RUN_BIOS_CONFIG=true
+        else
+            RUN_BIOS_CONFIG=false
+            set_state bios_configured true
+        fi
+    fi
+else
+    msg_warn "$BIOS_ISSUES kritisk(a) inställning(ar) saknas!"
+    
+    if [ "$(get_state bios_configured)" == "true" ] && [ "$(get_state needs_reboot)" == "true" ]; then
+        msg_info "Du konfigurerade BIOS tidigare men har inte startat om ännu."
         if ask_yes_no "Vill du starta om nu?" "Y"; then
             msg_info "Startar om om 5 sekunder... Kör setup.sh igen efter omstart."
             sleep 5
             reboot
             exit 0
         fi
+        RUN_BIOS_CONFIG=false
+    else
+        if ask_yes_no "Vill du köra automatisk BIOS-konfiguration för att fixa detta?" "Y"; then
+            RUN_BIOS_CONFIG=true
+        else
+            RUN_BIOS_CONFIG=false
+            msg_info "Se docs/01-bios-setup.md för manuell BIOS-guide."
+        fi
     fi
+fi
+
+if [ "$RUN_BIOS_CONFIG" != "true" ]; then
+    # Hoppa över BIOS-config, gå vidare till hostname etc.
+    true
 else
     echo "" > /dev/tty
     print_banner "BIOS-optimering (Dell Command Configure)" \
@@ -348,59 +423,8 @@ else
     msg_warn "Kunde inte hitta primärt nätverkskort"
 fi
 
-# --- BIOS Sanity Check (verifierar att inställningarna tog) ---
-echo ""
-msg_info "Verifierar BIOS-inställningar från OS-sidan..."
-echo ""
-
-BIOS_OK=true
-
-# Kolla VT-x
-if grep -c -E '(vmx|svm)' /proc/cpuinfo > /dev/null 2>&1; then
-    msg_ok "VT-x (Virtualisering) är aktiverat"
-else
-    msg_err "VT-x saknas! Aktivera 'Intel Virtualization Technology' i BIOS (F2 vid boot)."
-    BIOS_OK=false
-fi
-
-# Kolla VT-d / IOMMU
-if dmesg 2>/dev/null | grep -i -q -e "DMAR" -e "IOMMU"; then
-    msg_ok "VT-d (IOMMU) är aktiverat"
-else
-    msg_warn "VT-d verkar saknas. Om du just konfigurerade BIOS krävs en reboot."
-    msg_info "Om det fortfarande saknas efter reboot: aktivera 'VT for Direct I/O' i BIOS."
-    BIOS_OK=false
-fi
-
-# Kolla iGPU
-if [ -e /dev/dri/renderD128 ]; then
-    msg_ok "Intel iGPU hittades (/dev/dri/renderD128)"
-    if command -v vainfo &>/dev/null; then
-        VAAPI_DRIVER=$(vainfo 2>/dev/null | grep "vainfo: Driver" | head -1)
-        if [ -n "$VAAPI_DRIVER" ]; then
-            msg_ok "VAAPI: $VAAPI_DRIVER"
-        fi
-    fi
-else
-    msg_warn "Hittade ingen iGPU. Om du just konfigurerade BIOS krävs en reboot."
-    msg_info "Om det fortfarande saknas: kontrollera 'Multi-Display' i BIOS."
-    BIOS_OK=false
-fi
-
-if [ "$BIOS_OK" == "false" ]; then
-    echo "" > /dev/tty
-    if [ "$(get_state bios_configured)" == "true" ]; then
-        msg_info "Du konfigurerade just BIOS — en reboot krävs för att ändringarna ska synas."
-        msg_info "Kör om wizarden efter reboot: cd /opt/optiplex-homelab/scripts && bash setup.sh"
-    else
-        msg_warn "Vissa BIOS-inställningar verkar saknas."
-        msg_info "Se docs/01-bios-setup.md för komplett BIOS-guide."
-    fi
-    echo "" > /dev/tty
-    if ! ask_yes_no "Vill du fortsätta ändå?" "Y"; then
-        exit 1
-    fi
-fi
+# BIOS-verifiering sker nu i början av skriptet (rad 38-136).
+# Ingen dubbel-check behövs här.
 
 echo ""
 msg_ok "Proxmox Host-konfiguration klar!"
