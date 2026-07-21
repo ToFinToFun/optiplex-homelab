@@ -6,6 +6,9 @@ set -e
 # Byt till skriptets katalog
 cd "$(dirname "$0")"
 
+# Starta loggning
+exec > >(tee -a /var/log/optiplex-setup.log) 2>&1
+
 # Ladda bibliotek
 source lib/ui.sh
 source lib/config.sh
@@ -30,7 +33,7 @@ fi
 msg_ok "Körs som root på Proxmox"
 
 # ==========================================
-# 2. Configuration Phase
+# 2. Konfiguration Phase
 # ==========================================
 msg_header "Konfiguration"
 
@@ -60,7 +63,7 @@ else
 fi
 
 # ==========================================
-# 3. Inventering och Planering
+# 3. Inventering och Planering (Resume-stöd)
 # ==========================================
 msg_header "Inventering av systemet"
 
@@ -71,7 +74,7 @@ DO_CF="y"
 DO_NPM="y"
 DO_FRIGATE="y"
 
-# Kolla vad som redan finns
+# Kolla vad som redan finns och erbjud att köra ändå
 if [ "$(get_state host_configured)" == "true" ]; then
     msg_skip "Proxmox Host är redan konfigurerad"
     DO_HOST="n"
@@ -80,35 +83,47 @@ else
 fi
 
 if check_id_exists $IP_HA; then
-    msg_skip "VM $IP_HA (Home Assistant) finns redan"
-    DO_HA="n"
+    if ask_yes_no "VM $IP_HA (Home Assistant) finns redan. Vill du köra HA-skriptet igen?" "N"; then
+        DO_HA="y"
+    else
+        DO_HA="n"
+    fi
 else
     msg_info "VM $IP_HA (Home Assistant) saknas"
 fi
 
 if check_id_exists $IP_CLOUDFLARED; then
-    msg_skip "CT $IP_CLOUDFLARED (Cloudflared) finns redan"
-    DO_CF="n"
+    if ask_yes_no "CT $IP_CLOUDFLARED (Cloudflared) finns redan. Vill du köra Cloudflare-skriptet igen?" "N"; then
+        DO_CF="y"
+    else
+        DO_CF="n"
+    fi
 else
     msg_info "CT $IP_CLOUDFLARED (Cloudflared) saknas"
 fi
 
 if check_id_exists $IP_NPM; then
-    msg_skip "CT $IP_NPM (NPM) finns redan"
-    DO_NPM="n"
+    if ask_yes_no "CT $IP_NPM (NPM) finns redan. Vill du köra NPM-skriptet igen?" "N"; then
+        DO_NPM="y"
+    else
+        DO_NPM="n"
+    fi
 else
     msg_info "CT $IP_NPM (NPM) saknas"
 fi
 
 if check_id_exists $IP_FRIGATE; then
-    msg_skip "CT $IP_FRIGATE (Frigate) finns redan"
-    DO_FRIGATE="n"
+    if ask_yes_no "CT $IP_FRIGATE (Frigate) finns redan. Vill du köra Frigate-skriptet igen?" "N"; then
+        DO_FRIGATE="y"
+    else
+        DO_FRIGATE="n"
+    fi
 else
     msg_info "CT $IP_FRIGATE (Frigate) saknas"
 fi
 
 echo ""
-if ! ask_yes_no "Vill du fortsätta och installera de saknade delarna?" "Y"; then
+if ! ask_yes_no "Vill du fortsätta med vald installation?" "Y"; then
     msg_info "Avbryter installationen."
     exit 0
 fi
@@ -140,6 +155,15 @@ fi
 if [ "$DO_HA" == "y" ]; then
     print_banner "Home Assistant (VM $IP_HA)" "Laddar ner HAOS och skapar en UEFI-baserad virtuell maskin för smarta hem-styrning."
     bash modules/02-ha-vm.sh
+    # Validering
+    msg_info "Väntar på att HA ska svara på port 8123..."
+    for i in {1..10}; do
+        if nc -z -w 2 "${NETWORK_PREFIX}.${IP_HA}" 8123 2>/dev/null; then
+            msg_ok "HA är uppe och svarar!"
+            break
+        fi
+        sleep 3
+    done
 fi
 
 # 4.4 Cloudflared
@@ -152,6 +176,15 @@ fi
 if [ "$DO_NPM" == "y" ]; then
     print_banner "Nginx Proxy Manager (CT $IP_NPM)" "Reverse proxy med snyggt GUI för att dirigera trafik till HA och Frigate internt."
     bash modules/04-npm.sh "$TEMPLATE_PATH"
+    # Validering
+    msg_info "Väntar på att NPM ska svara på port 81..."
+    for i in {1..10}; do
+        if nc -z -w 2 "${NETWORK_PREFIX}.${IP_NPM}" 81 2>/dev/null; then
+            msg_ok "NPM är uppe och svarar!"
+            break
+        fi
+        sleep 3
+    done
 fi
 
 # 4.6 Frigate
@@ -166,9 +199,9 @@ if [ "$DO_FRIGATE" == "y" ] || [ "$(get_state host_configured)" == "true" ]; the
     bash modules/06-axis-cameras.sh
 fi
 
-# 4.8 Cloudflare DNS
+# 4.8 Cloudflare DNS & Routing
 if [ "$DO_CF" == "y" ] || [ "$DO_NPM" == "y" ] || [ "$(get_state host_configured)" == "true" ]; then
-    print_banner "Cloudflare DNS" "Sätter automatiskt upp domäner via Cloudflare API."
+    print_banner "Cloudflare DNS & Routing" "Sätter automatiskt upp domäner och tunnel-routing via Cloudflare API."
     bash modules/07-cloudflare-dns.sh
 fi
 
@@ -199,6 +232,6 @@ if [ -z "$CF_TUNNEL_TOKEN" ] && check_id_exists $IP_CLOUDFLARED; then
     echo -e "   ${YELLOW}pct exec $IP_CLOUDFLARED -- cloudflared service install <DIN_TOKEN>${NC}"
 fi
 echo -e "2. Gå till NPM Admin (Lösenord: admin@example.com / changeme) och sätt upp dina domäner."
-echo -e "3. Lägg in din Frigate config.yml via NPM/SFTP."
-echo -e "4. Återställ din Home Assistant backup."
-echo -e "\n${BLUE}Tack för att du använder OptiPlex Homelab Automation!${NC}\n"
+echo -e "3. Återställ din Home Assistant backup."
+echo -e "\n${BLUE}Tack för att du använder OptiPlex Homelab Automation!${NC}"
+echo -e "${YELLOW}Logg sparad i /var/log/optiplex-setup.log${NC}\n"

@@ -66,6 +66,35 @@ if pct status $IP_CLOUDFLARED &>/dev/null; then
                  --data "{\"type\":\"CNAME\",\"name\":\"${sub}.${DOMAIN}\",\"content\":\"$TARGET\",\"ttl\":1,\"proxied\":true}" > /dev/null
             msg_ok "Skapade ${sub}.${DOMAIN}"
         done
+        
+        if ask_yes_no "Vill du även att skriptet sätter upp Tunnel Routing (Ingress) via API?" "Y"; then
+            msg_info "Hämtar Tunnel ID och Account ID..."
+            # Vi kan hämta Account ID via /client/v4/accounts
+            ACC_RES=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts" \
+                 -H "Authorization: Bearer $CF_API_TOKEN" \
+                 -H "Content-Type: application/json")
+            ACC_ID=$(echo "$ACC_RES" | grep -o '"id":"[^"]*' | head -1 | cut -d'"' -f4)
+            
+            if [ -n "$ACC_ID" ]; then
+                msg_info "Sätter upp ingress-regler för tunneln..."
+                # Routing-konfig: ha -> NPM, frigate -> NPM
+                curl -s -X PUT "https://api.cloudflare.com/client/v4/accounts/$ACC_ID/cfd_tunnel/$TUNNEL_UUID/configurations" \
+                     -H "Authorization: Bearer $CF_API_TOKEN" \
+                     -H "Content-Type: application/json" \
+                     --data "{
+                       \"config\": {
+                         \"ingress\": [
+                           {\"hostname\": \"ha.${DOMAIN}\", \"service\": \"http://${NETWORK_PREFIX}.${IP_NPM}:80\"},
+                           {\"hostname\": \"frigate.${DOMAIN}\", \"service\": \"http://${NETWORK_PREFIX}.${IP_NPM}:80\"},
+                           {\"service\": \"http_status:404\"}
+                         ]
+                       }
+                     }" > /dev/null
+                msg_ok "Tunnel routing konfigurerad!"
+            else
+                msg_warn "Kunde inte hämta Account ID. API-nyckeln kanske saknar 'Account:Cloudflare Tunnel:Edit'."
+            fi
+        fi
     else
         msg_warn "Utan Tunnel UUID kan vi inte skapa DNS-posterna automatiskt."
     fi

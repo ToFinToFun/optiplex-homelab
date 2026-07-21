@@ -84,52 +84,135 @@ echo -e "${YELLOW}════════════════════�
 ask_string "Tryck Enter när du har gjort detta på kamerorna..." ""
 
 # Generera config
-msg_info "Genererar Frigate config.yml..."
+msg_info "Genererar komplett Frigate config.yml..."
 FRIGATE_CONFIG_TMP="/tmp/frigate_cameras.yml"
-echo "cameras:" > $FRIGATE_CONFIG_TMP
+
+# Skapa den kompletta mallen
+cat << EOF > $FRIGATE_CONFIG_TMP
+# ==========================================
+# Frigate Huvudkonfiguration
+# ==========================================
+
+mqtt:
+  enabled: true
+  host: ${NETWORK_PREFIX}.${IP_HA}
+  user: mqtt_user
+  password: mqtt_password
+
+# Aktivera OpenVINO för iGPU
+detectors:
+  ov_0:
+    type: openvino
+    device: GPU
+
+model:
+  model_type: yolo-generic
+  input_tensor: nchw
+  input_dtype: float
+  labelmap_path: /config/model_cache/coco-80.txt
+  path: /config/model_cache/yolov9c_openvino.xml
+  width: 320
+  height: 320
+
+ffmpeg:
+  hwaccel_args: preset-vaapi
+
+# Objekt att spåra
+objects:
+  track:
+    - person
+    - bicycle
+    - car
+    - cat
+    - dog
+  filters:
+    person:
+      min_score: 0.5
+      threshold: 0.7
+
+# Generella inspelningsinställningar
+record:
+  enabled: true
+  alerts:
+    pre_capture: 5
+    post_capture: 5
+    retain:
+      days: 30
+      mode: active_objects
+  detections:
+    pre_capture: 5
+    post_capture: 5
+    retain:
+      days: 7
+      mode: active_objects
+
+snapshots:
+  enabled: true
+  retain:
+    default: 30
+
+ui:
+  time_format: 24hour
+
+go2rtc:
+  streams:
+EOF
+
+# Lägg till go2rtc streams
+for ip in "${FOUND_CAMS[@]}"; do
+    CAM_NAME="kamera_${ip//./_}"
+    # Vi sätter default namn till ip:n men låter användaren ändra
+    # För att inte bomba användaren med prompts, sätter vi namnet automatiskt
+    # om de inte kör wizarden interaktivt. Här frågar vi bara en gång.
+    cat << EOF >> $FRIGATE_CONFIG_TMP
+    ${CAM_NAME}:
+      - rtsp://frigate:${CAM_PASSWORD}@${ip}/axis-media/media.amp?streamprofile=main&videocodec=h264
+    ${CAM_NAME}_sub:
+      - rtsp://frigate:${CAM_PASSWORD}@${ip}/axis-media/media.amp?streamprofile=detect&videocodec=h264
+EOF
+done
+
+# Lägg till kamerorna
+cat << EOF >> $FRIGATE_CONFIG_TMP
+
+cameras:
+EOF
 
 for ip in "${FOUND_CAMS[@]}"; do
     CAM_NAME="kamera_${ip//./_}"
-    CAM_NAME=$(ask_string "Namn för kamera på IP $ip (inga mellanslag)" "$CAM_NAME")
-    
-    cat >> $FRIGATE_CONFIG_TMP << EOF
+    cat << EOF >> $FRIGATE_CONFIG_TMP
   ${CAM_NAME}:
     ffmpeg:
       inputs:
-        - path: rtsp://frigate:${CAM_PASSWORD}@${ip}/axis-media/media.amp?streamprofile=main
+        - path: rtsp://127.0.0.1:8554/${CAM_NAME}
+          input_args: preset-rtsp-restream
           roles:
             - record
-        - path: rtsp://frigate:${CAM_PASSWORD}@${ip}/axis-media/media.amp?streamprofile=detect
+        - path: rtsp://127.0.0.1:8554/${CAM_NAME}_sub
+          input_args: preset-rtsp-restream
           roles:
             - detect
     detect:
+      enabled: true
       width: 640
       height: 480
       fps: 5
 EOF
-    msg_ok "Genererade config för $CAM_NAME"
 done
+
+msg_ok "Komplett config genererad!"
 
 if pct status $IP_FRIGATE &>/dev/null; then
     msg_info "Pushar ny konfiguration till Frigate (CT $IP_FRIGATE)..."
     
-    # Ladda ner befintlig config
-    pct pull $IP_FRIGATE /opt/frigate/config/config.yml /tmp/frigate_base.yml 2>/dev/null || echo "mqtt: {enabled: False}" > /tmp/frigate_base.yml
+    pct push $IP_FRIGATE $FRIGATE_CONFIG_TMP /opt/frigate/config/config.yml
     
-    # Rensa gamla 'cameras:' sektionen
-    sed -i '/^cameras:/,$d' /tmp/frigate_base.yml
-    
-    # Slå ihop
-    cat /tmp/frigate_base.yml $FRIGATE_CONFIG_TMP > /tmp/frigate_final.yml
-    
-    pct push $IP_FRIGATE /tmp/frigate_final.yml /opt/frigate/config/config.yml
-    
-    msg_info "Startar om Frigate för att tillämpa kamerorna..."
+    msg_info "Startar om Frigate för att tillämpa inställningarna..."
     pct exec $IP_FRIGATE -- bash -c "cd /opt/frigate && docker compose restart" > /dev/null
-    msg_ok "Frigate omstartad med nya kameror!"
+    msg_ok "Frigate omstartad med komplett config!"
 else
     msg_warn "Frigate-containern (CT $IP_FRIGATE) verkar inte vara igång."
     msg_info "Konfigurationen har sparats i /tmp/frigate_cameras.yml"
 fi
 
-rm -f $FRIGATE_CONFIG_TMP /tmp/frigate_base.yml /tmp/frigate_final.yml
+rm -f $FRIGATE_CONFIG_TMP
