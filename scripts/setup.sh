@@ -158,7 +158,34 @@ else
         msg_info "Se: docs/04-cloudflare-tunnel.md och docs/10-cloudflare-api-setup.md"
     fi
     
-    CT_PASSWORD=$(ask_string "Standardlösenord för nya containers" "MySecurePassword123!" "true")
+    # Gemensamt lösenord — används överallt (CT root, NPM admin, MQTT, kamera RTSP)
+    echo "" > /dev/tty
+    echo -e "  ${CYAN}╔══════════════════════════════════════════════════════════╗${NC}" > /dev/tty
+    echo -e "  ${CYAN}║${NC} ${BOLD}Gemensamt lösenord${NC}                                        ${CYAN}║${NC}" > /dev/tty
+    echo -e "  ${CYAN}║${NC}                                                          ${CYAN}║${NC}" > /dev/tty
+    echo -e "  ${CYAN}║${NC} Samma lösenord används för:                                ${CYAN}║${NC}" > /dev/tty
+    echo -e "  ${CYAN}║${NC}   • Alla containers (root-lösenord)                       ${CYAN}║${NC}" > /dev/tty
+    echo -e "  ${CYAN}║${NC}   • NPM admin-konto                                      ${CYAN}║${NC}" > /dev/tty
+    echo -e "  ${CYAN}║${NC}   • MQTT-användare (Frigate → HA)                          ${CYAN}║${NC}" > /dev/tty
+    echo -e "  ${CYAN}║${NC}   • Kamera RTSP-användare                                 ${CYAN}║${NC}" > /dev/tty
+    echo -e "  ${CYAN}║${NC}                                                          ${CYAN}║${NC}" > /dev/tty
+    echo -e "  ${CYAN}║${NC} ${DIM}Du kan byta individuella lösenord senare.${NC}                  ${CYAN}║${NC}" > /dev/tty
+    echo -e "  ${CYAN}╚══════════════════════════════════════════════════════════╝${NC}" > /dev/tty
+    echo "" > /dev/tty
+    SHARED_PASSWORD=$(ask_string "Välj ett gemensamt lösenord" "" "true")
+    while [ -z "$SHARED_PASSWORD" ]; do
+        msg_warn "Lösenord kan inte vara tomt."
+        SHARED_PASSWORD=$(ask_string "Välj ett gemensamt lösenord" "" "true")
+    done
+    
+    # Tjänsteanvändare (för RTSP + MQTT)
+    echo "" > /dev/tty
+    echo -e "  ${CYAN}Tjänsteanvändare — skapas på kameror och i HA (Mosquitto).${NC}" > /dev/tty
+    echo -e "  ${CYAN}Samma användarnamn används för RTSP och MQTT.${NC}" > /dev/tty
+    SERVICE_USER=$(ask_string "Tjänsteanvändarnamn" "frigate")
+    
+    # Bakkompatibilitet — CT_PASSWORD pekar på SHARED_PASSWORD
+    CT_PASSWORD="$SHARED_PASSWORD"
     
     STORAGE_POOL=$(find_storage_pool)
     if [ -z "$STORAGE_POOL" ]; then
@@ -339,14 +366,7 @@ if [ "$DO_HA" == "y" ]; then
             if ! ask_yes_no "Vill du fortsätta med nästa steg ändå?" "N"; then exit 1; fi
         else
             rollback_clear  # Lyckades — inget att ångra
-            msg_info "Väntar på att HA ska starta (tar en stund)..."
-            for i in {1..15}; do
-                if nc -z -w 2 "${NETWORK_PREFIX}.${IP_HA}" 8123 2>/dev/null; then
-                    msg_ok "HA är uppe och svarar på ${NETWORK_PREFIX}.${IP_HA}:8123!"
-                    break
-                fi
-                sleep 5
-            done
+            wait_for_service "${NETWORK_PREFIX}.${IP_HA}" 8123 "Home Assistant" 180
         fi
     fi
 fi
@@ -386,14 +406,41 @@ Ingen 'Force SSL' ska aktiveras i NPM (orsakar redirect-loop)."
             if ! ask_yes_no "Vill du fortsätta med nästa steg ändå?" "N"; then exit 1; fi
         else
             rollback_clear
-            msg_info "Väntar på att NPM ska svara på port 81..."
-            for i in {1..10}; do
-                if nc -z -w 2 "${NETWORK_PREFIX}.${IP_NPM}" 81 2>/dev/null; then
-                    msg_ok "NPM är uppe och svarar!"
-                    break
+            wait_for_service "${NETWORK_PREFIX}.${IP_NPM}" 81 "NPM" 60
+            
+            # Auto-byt NPM admin-lösenord från default till SHARED_PASSWORD
+            if [ -n "$SHARED_PASSWORD" ]; then
+                msg_info "Byter NPM admin-lösenord från default..."
+                sleep 3  # Ge NPM tid att vara helt redo
+                NPM_IP="${NETWORK_PREFIX}.${IP_NPM}"
+                # Logga in med default-credentials
+                TOKEN_RES=$(curl -s --max-time 10 -X POST "http://${NPM_IP}:81/api/tokens" \
+                    -H "Content-Type: application/json" \
+                    -d '{"identity": "admin@example.com", "secret": "changeme"}' 2>/dev/null)
+                NPM_TOKEN=$(echo "$TOKEN_RES" | grep -o '"token":"[^"]*' | cut -d'"' -f4)
+                
+                if [ -n "$NPM_TOKEN" ]; then
+                    # Byt lösenord
+                    CHANGE_RES=$(curl -s --max-time 10 -X PUT "http://${NPM_IP}:81/api/users/1" \
+                        -H "Content-Type: application/json" \
+                        -H "Authorization: Bearer $NPM_TOKEN" \
+                        -d "{\"name\": \"Administrator\", \"nickname\": \"Admin\", \"email\": \"${NPM_ADMIN_EMAIL:-admin@example.com}\"}" 2>/dev/null)
+                    
+                    # Byt lösenord separat
+                    curl -s --max-time 10 -X PUT "http://${NPM_IP}:81/api/users/1/auth" \
+                        -H "Content-Type: application/json" \
+                        -H "Authorization: Bearer $NPM_TOKEN" \
+                        -d "{\"type\": \"password\", \"current\": \"changeme\", \"secret\": \"${SHARED_PASSWORD}\"}" > /dev/null 2>&1
+                    
+                    if [ $? -eq 0 ]; then
+                        msg_ok "NPM admin-lösenord bytt! Login: ${NPM_ADMIN_EMAIL:-admin@example.com} / (ditt gemensamma lösenord)"
+                    else
+                        msg_warn "Kunde inte byta NPM-lösenord automatiskt. Byt manuellt i UI:t."
+                    fi
+                else
+                    msg_warn "Kunde inte logga in i NPM (kanske redan bytt). Kontrollera manuellt."
                 fi
-                sleep 3
-            done
+            fi
         fi
     fi
 fi
@@ -426,14 +473,7 @@ if [ "$DO_FRIGATE" == "y" ]; then
                 if ! ask_yes_no "Vill du fortsätta med nästa steg ändå?" "N"; then exit 1; fi
             else
                 rollback_clear
-                msg_info "Väntar på att Frigate ska svara på port 5000..."
-                for i in {1..10}; do
-                    if nc -z -w 2 "${NETWORK_PREFIX}.${IP_FRIGATE}" 5000 2>/dev/null; then
-                        msg_ok "Frigate är uppe och svarar!"
-                        break
-                    fi
-                    sleep 3
-                done
+                wait_for_service "${NETWORK_PREFIX}.${IP_FRIGATE}" 5000 "Frigate" 90
             fi
         fi
     fi
@@ -587,8 +627,8 @@ if check_id_exists $IP_FRIGATE 2>/dev/null; then
     echo -e "     ${BOLD}Gör detta i HA:${NC}"
     echo -e "       a) Inställningar → Add-ons → Sök 'Mosquitto broker' → Installera"
     echo -e "       b) Inställningar → Personer → Användare → Lägg till:"
-    echo -e "          Användarnamn: ${GREEN}mqtt-user${NC}"
-    echo -e "          Lösenord: (samma som du angav i Frigate-setupen)"
+    echo -e "          Användarnamn: ${GREEN}${SERVICE_USER:-frigate}${NC}"
+    echo -e "          Lösenord: ${GREEN}(ditt gemensamma lösenord)${NC}"
     echo -e "       c) Starta Mosquitto add-on"
     echo -e ""
     echo -e "     ${DIM}Om MQTT inte konfigureras: Frigate fungerar lokalt men HA${NC}"
@@ -607,8 +647,12 @@ fi
 
 if check_id_exists $IP_NPM 2>/dev/null; then
     echo -e "  ${STEP}. ${BOLD}NPM Admin:${NC} Logga in på http://${NETWORK_PREFIX}.${IP_NPM}:81"
-    echo -e "     Standardinloggning: admin@example.com / changeme"
-    echo -e "     Byt lösenord direkt!"
+    if [ -n "$SHARED_PASSWORD" ]; then
+        echo -e "     Login: ${GREEN}${NPM_ADMIN_EMAIL:-admin@example.com}${NC} / (ditt gemensamma lösenord)"
+    else
+        echo -e "     Standardinloggning: admin@example.com / changeme"
+        echo -e "     Byt lösenord direkt!"
+    fi
     echo -e "     ${YELLOW}OBS: Aktivera INTE 'Force SSL' — Cloudflare hanterar HTTPS externt.${NC}"
     STEP=$((STEP + 1))
 fi
@@ -629,17 +673,142 @@ fi
 
 echo ""
 echo -e "  ${BOLD}Användbara kommandon:${NC}"
-echo -e "    Hälsokontroll: ${YELLOW}cd /opt/optiplex-homelab/scripts && bash tools/doctor.sh${NC}"
+echo -e "    Hälsokontroll: ${YELLOW}cd /opt/optiplex-homelab/scripts && sudo bash tools/doctor.sh${NC}"
 echo -e "    Systemstatus:  ${YELLOW}cd /opt/optiplex-homelab/scripts && bash tools/status.sh${NC}"
 echo -e "    Uppdatera:     ${YELLOW}cd /opt/optiplex-homelab/scripts && bash tools/update.sh${NC}"
 echo -e "    USB-backup:    ${YELLOW}cd /opt/optiplex-homelab/scripts && bash tools/usb-backup.sh${NC}"
 echo -e "    Kör om wizard:  ${YELLOW}cd /opt/optiplex-homelab/scripts && bash setup.sh${NC}"
 echo -e "    Dry-run:       ${YELLOW}cd /opt/optiplex-homelab/scripts && bash setup.sh --dry-run${NC}"
 
+# ==========================================
+# Generera TODO.md (manuella steg som kvarstår)
+# ==========================================
+if [ "$DRY_RUN" != "true" ]; then
+    TODO_FILE="/opt/optiplex-homelab/TODO.md"
+    cat > "$TODO_FILE" << 'TODOEOF'
+# Manuella steg efter installation
+
+Dessa steg kunde inte automatiseras och måste göras manuellt.
+Bocka av med [x] när du är klar.
+
+---
+
+TODOEOF
+
+    TODO_STEP=1
+
+    # HA DHCP
+    if check_id_exists $IP_HA 2>/dev/null; then
+        cat >> "$TODO_FILE" << EOF
+## ${TODO_STEP}. Home Assistant — Reservera IP i router
+
+- [ ] Gå till din Unifi-router (eller annan DHCP-server)
+- [ ] Reservera IP **${NETWORK_PREFIX}.${IP_HA}** för HA-VM:ens MAC-adress
+- [ ] Alternativt: Konfigurera statisk IP i HA: Settings → System → Network
+
+> HAOS använder DHCP som default. Utan reservation kan IP:n ändras vid omstart.
+
+---
+
+EOF
+        TODO_STEP=$((TODO_STEP + 1))
+    fi
+
+    # Mosquitto
+    if check_id_exists $IP_FRIGATE 2>/dev/null; then
+        cat >> "$TODO_FILE" << EOF
+## ${TODO_STEP}. MQTT (Mosquitto) i Home Assistant
+
+- [ ] Öppna HA: http://${NETWORK_PREFIX}.${IP_HA}:8123
+- [ ] Gå till: Inställningar → Add-ons → Sök "Mosquitto broker" → Installera
+- [ ] Skapa MQTT-användare: Inställningar → Personer → Användare → Lägg till:
+  - Användarnamn: **${SERVICE_USER:-frigate}**
+  - Lösenord: **(ditt gemensamma lösenord)**
+- [ ] Starta Mosquitto add-on
+- [ ] Verifiera: Frigate-loggen ska visa "MQTT connected"
+
+> Utan MQTT: Frigate fungerar lokalt men HA får inga notiser/händelser.
+
+---
+
+EOF
+        TODO_STEP=$((TODO_STEP + 1))
+    fi
+
+    # Kameror
+    if [ "$(get_state cameras_configured)" == "true" ]; then
+        cat >> "$TODO_FILE" << EOF
+## ${TODO_STEP}. Kameror — Skapa användare
+
+Logga in på varje kameras webbgränssnitt:
+
+- [ ] Skapa användare på alla kameror:
+  - Användarnamn: **${SERVICE_USER:-frigate}**
+  - Lösenord: **(ditt gemensamma lösenord)**
+  - Roll: **Viewer** eller **Operator** (ej Admin)
+- [ ] Skapa stream-profiler (Axis-kameror):
+  - Profil **main**: Max upplösning, 15 fps, H.264/H.265
+  - Profil **detect**: Låg upplösning (640x480), 5 fps, H.264
+
+> Utan detta kan Frigate inte ansluta till kamerorna.
+
+---
+
+EOF
+        TODO_STEP=$((TODO_STEP + 1))
+    fi
+
+    # Cloudflare Tunnel
+    if [ -z "$CF_TUNNEL_TOKEN" ] && check_id_exists $IP_CLOUDFLARED 2>/dev/null; then
+        cat >> "$TODO_FILE" << EOF
+## ${TODO_STEP}. Cloudflare Tunnel Token
+
+- [ ] Skapa tunnel: Cloudflare Dashboard → Zero Trust → Networks → Tunnels
+- [ ] Kopiera token
+- [ ] Installera: \`pct exec ${IP_CLOUDFLARED} -- cloudflared service install <DIN_TOKEN>\`
+- [ ] Verifiera: \`pct exec ${IP_CLOUDFLARED} -- systemctl status cloudflared\`
+
+> Utan token fungerar INTE extern åtkomst (ha.dindomän.se etc).
+
+---
+
+EOF
+        TODO_STEP=$((TODO_STEP + 1))
+    fi
+
+    # Frigate zoner
+    if check_id_exists $IP_FRIGATE 2>/dev/null; then
+        cat >> "$TODO_FILE" << EOF
+## ${TODO_STEP}. Frigate — Zoner och masker
+
+- [ ] Öppna Frigate: http://${NETWORK_PREFIX}.${IP_FRIGATE}:5000
+- [ ] Verifiera att alla kameror syns och AI-detektering fungerar
+- [ ] Rita zoner (områden där detektering ska ske) för varje kamera
+- [ ] Rita masker (områden att ignorera, t.ex. träd, vägar)
+
+---
+
+EOF
+        TODO_STEP=$((TODO_STEP + 1))
+    fi
+
+    # Avslutning
+    cat >> "$TODO_FILE" << 'EOF'
+## Tips
+
+- Kör `sudo bash tools/doctor.sh` för att kontrollera systemets hälsa
+- Kör `bash setup.sh` igen för att lägga till/ändra tjänster
+- Alla credentials använder samma gemensamma lösenord (byt individuellt vid behov)
+EOF
+
+    msg_ok "TODO-lista sparad: ${TODO_FILE}"
+    msg_info "  Öppna med: cat ${TODO_FILE}"
+fi
+
 echo ""
-echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${GREEN}  Tack för att du använder OptiPlex Homelab Automation!${NC}"
-echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 echo -e "  Logg sparad i: /var/log/optiplex-setup.log"
 echo ""

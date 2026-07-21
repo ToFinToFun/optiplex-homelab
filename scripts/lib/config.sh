@@ -16,6 +16,7 @@ load_config() {
 save_config() {
     cat > "$ENV_FILE" << EOF
 # OptiPlex Homelab - Automation Config
+# Genererad av setup.sh — redigera inte manuellt om du inte vet vad du gör.
 NODE_HOSTNAME="${NODE_HOSTNAME:-homelab}"
 NETWORK_PREFIX="${NETWORK_PREFIX}"
 GATEWAY="${GATEWAY}"
@@ -24,8 +25,16 @@ IP_CLOUDFLARED="${IP_CLOUDFLARED:-101}"
 IP_NPM="${IP_NPM:-102}"
 IP_FRIGATE="${IP_FRIGATE:-103}"
 CF_TUNNEL_TOKEN="${CF_TUNNEL_TOKEN}"
-CT_PASSWORD="${CT_PASSWORD}"
 STORAGE_POOL="${STORAGE_POOL:-$(find_storage_pool)}"
+
+# Gemensamt lösenord (används för CT root, NPM admin, MQTT, RTSP)
+SHARED_PASSWORD="${SHARED_PASSWORD}"
+
+# Tjänsteanvändare (samma överallt)
+SERVICE_USER="${SERVICE_USER:-frigate}"
+
+# NPM admin-email
+NPM_ADMIN_EMAIL="${NPM_ADMIN_EMAIL:-admin@example.com}"
 EOF
 }
 

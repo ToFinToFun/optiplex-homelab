@@ -78,6 +78,36 @@ show_progress() {
     echo -e "  ${CYAN}└─────────────────────────────────────────────────────────┘${NC}" > /dev/tty
 }
 
+# ============================================================
+# Spinner med tidräknare
+# ============================================================
+# Användning: wait_for_service <host> <port> <name> <timeout_secs>
+wait_for_service() {
+    local host="$1"
+    local port="$2"
+    local name="$3"
+    local timeout="${4:-120}"
+    local elapsed=0
+    local spinner='|/-\\'
+    local spin_i=0
+    
+    while [ $elapsed -lt $timeout ]; do
+        if nc -z -w 2 "$host" "$port" 2>/dev/null; then
+            printf "\r  ${GREEN}\u2713${NC} ${name} svarar! (${elapsed}s)                    \n" > /dev/tty
+            return 0
+        fi
+        
+        local s=${spinner:$spin_i:1}
+        printf "\r  ${CYAN}%s${NC} V\u00e4ntar p\u00e5 ${name}... (%ds/%ds)" "$s" "$elapsed" "$timeout" > /dev/tty
+        spin_i=$(( (spin_i + 1) % 4 ))
+        sleep 2
+        elapsed=$((elapsed + 2))
+    done
+    
+    printf "\r  ${YELLOW}\u26a0${NC} ${name} svarade inte inom ${timeout}s.          \n" > /dev/tty
+    return 1
+}
+
 ask_yes_no() {
     local prompt="$1"
     local default="$2"

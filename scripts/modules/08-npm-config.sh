@@ -30,16 +30,30 @@ if [ -z "$DOMAIN" ]; then
 fi
 
 msg_info "Hämtar API-token från NPM..."
-# NPM default credentials
 NPM_IP="${NETWORK_PREFIX}.${IP_NPM}"
+
+# Försök logga in med gemensamt lösenord (om det redan bytts av setup.sh)
+# Fallback till default-credentials
+NPM_EMAIL="${NPM_ADMIN_EMAIL:-admin@example.com}"
+NPM_PASS="${SHARED_PASSWORD:-changeme}"
+
 TOKEN_RES=$(curl -s -X POST "http://${NPM_IP}:81/api/tokens" \
     -H "Content-Type: application/json" \
-    -d '{"identity": "admin@example.com", "secret": "changeme"}')
+    -d "{\"identity\": \"${NPM_EMAIL}\", \"secret\": \"${NPM_PASS}\"}")
 
 TOKEN=$(echo "$TOKEN_RES" | grep -o '"token":"[^"]*' | cut -d'"' -f4)
 
+# Fallback: försök med default om gemensamt lösenord inte fungerade
+if [ -z "$TOKEN" ] && [ "$NPM_PASS" != "changeme" ]; then
+    TOKEN_RES=$(curl -s -X POST "http://${NPM_IP}:81/api/tokens" \
+        -H "Content-Type: application/json" \
+        -d '{"identity": "admin@example.com", "secret": "changeme"}')
+    TOKEN=$(echo "$TOKEN_RES" | grep -o '"token":"[^"]*' | cut -d'"' -f4)
+fi
+
 if [ -z "$TOKEN" ]; then
-    msg_warn "Kunde inte logga in i NPM. Har du redan bytt lösenord? I så fall måste du lägga in proxy hosts manuellt i GUI:t."
+    msg_warn "Kunde inte logga in i NPM. Lösenordet har kanske bytts manuellt."
+    msg_info "Lägg in proxy hosts manuellt i NPM GUI:t (http://${NPM_IP}:81)."
     exit 0
 fi
 
