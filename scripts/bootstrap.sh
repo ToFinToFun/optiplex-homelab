@@ -167,6 +167,9 @@ setup_repos() {
 
 if [ ${#MISSING[@]} -eq 0 ]; then
     echo -e "${GREEN}[OK]${NC} Alla verktyg är redan installerade!"
+    echo ""
+    echo -ne "  Tryck Enter för att fortsätta..."
+    read < /dev/tty
 else
     echo -e "  ${YELLOW}${#MISSING[@]} verktyg saknas:${NC} ${MISSING[*]}"
     echo ""
@@ -260,9 +263,16 @@ fi
 # ============================================================
 # Steg 4: Starta wizarden
 # ============================================================
-echo -e "\n${CYAN}════════════════════════════════════════════════════════════════${NC}"
-echo -e "${BOLD}Allt redo! Startar installationswizarden...${NC}"
-echo -e "${CYAN}════════════════════════════════════════════════════════════════${NC}\n"
+echo ""
+echo -e "${CYAN}════════════════════════════════════════════════════════════════${NC}"
+echo -e "${GREEN}[OK]${NC} ${BOLD}Förberedelser klara!${NC}"
+echo -e "${CYAN}════════════════════════════════════════════════════════════════${NC}"
+echo ""
+echo -e "  Nästa steg: Installationswizarden startar."
+echo -e "  Där väljer du vad du vill installera (HA, Frigate, etc.)"
+echo ""
+echo -ne "${BOLD}Tryck Enter för att starta wizarden...${NC}"
+read < /dev/tty
 
 cd "$INSTALL_DIR/scripts"
 chmod +x setup.sh modules/*.sh tools/*.sh lib/*.sh 2>/dev/null || true
