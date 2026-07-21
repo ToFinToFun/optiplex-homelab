@@ -1,92 +1,93 @@
-# OptiPlex Homelab — Kommandon
+═══════════════════════════════════════════════════════════════
+  OptiPlex Homelab — Kommandon
+═══════════════════════════════════════════════════════════════
 
----
 
-## Installation & Wizard (en rad gör allt)
-
+INSTALLATION & WIZARD (en rad gör allt)
+────────────────────────────────────────
 Installerar verktyg, klonar repot och startar wizarden.
-Om repot redan finns: uppdaterar till senaste versionen och startar wizarden med interaktiv meny.
+Om repot redan finns: uppdaterar och visar interaktiv meny.
+Kan köras hur många gånger som helst — den kommer ihåg vad
+som redan är gjort och du väljer vad du vill köra/ändra.
 
-Kan köras hur många gånger som helst — den kommer ihåg vad som redan är gjort och visar en meny där du väljer vad du vill köra.
-
-```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/ToFinToFun/optiplex-homelab/master/scripts/bootstrap.sh)
-```
 
----
 
-## Diagnostik (felsökning)
+DIAGNOSTIK (felsökning)
+───────────────────────
+Kollar BIOS, iGPU, containers, Docker, MQTT, brandvägg,
+NPM SSL, disk, temperatur — allt. Visar ✓/✗ per punkt.
 
-Kollar BIOS, iGPU, containers, Docker, MQTT, brandvägg, NPM SSL, disk, temperatur — allt.
-
-```bash
 cd /opt/optiplex-homelab/scripts && bash tools/doctor.sh
-```
 
----
 
-## Systemstatus (snabb health-check)
+SYSTEMSTATUS (snabb health-check)
+─────────────────────────────────
+Visar status för alla containers/VM, iGPU-last,
+disk-utrymme och tunnel-anslutning.
 
-Visar status för alla containers/VM, iGPU-last, disk-utrymme och tunnel-anslutning.
-
-```bash
 cd /opt/optiplex-homelab/scripts && bash tools/status.sh
-```
 
----
 
-## Proxmox-uppdatering
+PROXMOX-UPPDATERING
+───────────────────
+Visar installerad vs tillgänglig version med key features.
+Erbjuder uppgradering/uppdatering om ny version finns.
 
-Visar installerad vs tillgänglig version med key features. Erbjuder uppgradering om ny version finns.
+  Bara kolla (ändrar inget):
+  cd /opt/optiplex-homelab/scripts && bash tools/upgrade-proxmox.sh --check
 
-```bash
-# Bara kolla (ändrar inget):
-cd /opt/optiplex-homelab/scripts && bash tools/upgrade-proxmox.sh --check
+  Kolla och installera:
+  cd /opt/optiplex-homelab/scripts && bash tools/upgrade-proxmox.sh
 
-# Kolla och installera om det finns uppdateringar:
-cd /opt/optiplex-homelab/scripts && bash tools/upgrade-proxmox.sh
-```
 
----
+UPPDATERA ALLT
+──────────────
+Uppdaterar repot (git pull), Proxmox-paket och alla
+Docker-images (Frigate, NPM).
 
-## Uppdatera allt
-
-Uppdaterar repot (git pull), Proxmox-paket och alla Docker-images (Frigate, NPM).
-
-```bash
 cd /opt/optiplex-homelab/scripts && bash tools/update.sh
-```
 
----
 
-## Backup till USB
+BACKUP TILL USB
+───────────────
+Tar en komplett backup av alla containers (exkl.
+Frigate-video) till ett USB-minne.
 
-Tar en komplett backup av alla containers (exkl. Frigate-video) till ett USB-minne.
-
-```bash
 cd /opt/optiplex-homelab/scripts && bash tools/usb-backup.sh
-```
 
----
 
-## Avinstallera allt (börja om)
+AVINSTALLERA ALLT (börja om)
+────────────────────────────
+Tar bort alla skapade containers och VM.
+Frågar innan varje borttagning.
 
-Tar bort alla skapade containers och VM. Frågar innan varje borttagning.
-
-```bash
 cd /opt/optiplex-homelab/scripts && bash tools/uninstall.sh
-```
 
----
 
-## Visa installationsloggen (vid problem)
+VISA INSTALLATIONSLOGGEN (vid problem)
+──────────────────────────────────────
+Visar vad som hände under installationen,
+användbart för felsökning.
 
-Visar vad som hände under installationen, användbart för felsökning.
-
-```bash
 cat /var/log/optiplex-setup.log
-```
 
----
 
-**Repo:** https://github.com/ToFinToFun/optiplex-homelab
+═══════════════════════════════════════════════════════════════
+  Bonus
+═══════════════════════════════════════════════════════════════
+
+
+BYTA ROOT-LÖSENORD PÅ ALLA CONTAINERS
+──────────────────────────────────────
+Fristående script som byter root-lösenord på alla
+befintliga LXC-containers. Användbart om du redan har
+containers som skapades med annat lösenord, eller om du
+vill byta lösenord utan att köra hela wizarden.
+
+bash <(curl -s https://gist.githubusercontent.com/ToFinToFun/ae2fcd9bdc5cb7a54f95969b972241fa/raw/change-ct-passwords.sh)
+
+
+═══════════════════════════════════════════════════════════════
+  Repo: https://github.com/ToFinToFun/optiplex-homelab
+═══════════════════════════════════════════════════════════════
