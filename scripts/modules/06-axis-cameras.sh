@@ -5,9 +5,77 @@ source lib/config.sh
 
 msg_header "Axis Kameror & Frigate Config Generator"
 
+# ============================================================
+# PRE-CHECK: Verifiera att Frigate-containern existerar
+# ============================================================
+FRIGATE_READY=false
+FRIGATE_IP="${NETWORK_PREFIX}.${IP_FRIGATE}"
+
+if pct status ${IP_FRIGATE} 2>/dev/null | grep -q "running"; then
+    # Kolla att Docker finns i containern
+    if pct exec ${IP_FRIGATE} -- docker --version &>/dev/null; then
+        FRIGATE_READY=true
+        msg_ok "Frigate-container (CT ${IP_FRIGATE}) körs med Docker"
+    else
+        msg_warn "Frigate-container körs men Docker saknas inuti!"
+        msg_info "Config genereras och sparas lokalt. Pusha manuellt efter Docker-installation."
+    fi
+elif pct status ${IP_FRIGATE} &>/dev/null; then
+    msg_warn "Frigate-container (CT ${IP_FRIGATE}) finns men är stoppad."
+    msg_info "Config genereras och sparas lokalt. Starta containern och pusha sedan."
+else
+    msg_warn "Frigate-container (CT ${IP_FRIGATE}) finns INTE."
+    msg_info "Config genereras och sparas lokalt. Kör modul 05 (Frigate) först."
+fi
+
+# ============================================================
+# SKYDD MOT DUBBLA KÖRNINGAR
+# ============================================================
+EXISTING_CONFIG=""
+if [ "$FRIGATE_READY" == "true" ]; then
+    # Kolla om config redan finns i containern
+    if pct exec ${IP_FRIGATE} -- test -f /opt/frigate/config/config.yml 2>/dev/null; then
+        # Kolla om det är mer än dummy-config
+        CAMERA_COUNT=$(pct exec ${IP_FRIGATE} -- grep -c "^  [a-z]" /opt/frigate/config/config.yml 2>/dev/null || echo "0")
+        if [ "$CAMERA_COUNT" -gt 1 ]; then
+            EXISTING_CONFIG="true"
+        fi
+    fi
+fi
+
+if [ -f "/opt/optiplex-homelab/generated/frigate-config.yml" ] || [ "$EXISTING_CONFIG" == "true" ]; then
+    echo "" > /dev/tty
+    msg_warn "En Frigate-konfiguration finns redan!"
+    echo -e "  ${YELLOW}Om du fortsätter skrivs den ÖVER — alla zoner/masker du${NC}" > /dev/tty
+    echo -e "  ${YELLOW}konfigurerat i Frigate UI försvinner!${NC}" > /dev/tty
+    echo "" > /dev/tty
+    echo -e "  ${BOLD}Alternativ:${NC}" > /dev/tty
+    echo -e "  1) Skriv över (ny config från scratch)" > /dev/tty
+    echo -e "  2) Avbryt (behåll befintlig config)" > /dev/tty
+    echo -ne "\n  ${BOLD}Välj [1/2]: ${NC}" > /dev/tty
+    read OVERWRITE_CHOICE < /dev/tty
+    
+    if [ "$OVERWRITE_CHOICE" != "1" ]; then
+        msg_skip "Behåller befintlig konfiguration."
+        msg_info "Tips: Redigera config direkt i Frigate UI eller via:"
+        msg_info "  pct exec ${IP_FRIGATE} -- nano /opt/frigate/config/config.yml"
+        exit 0
+    fi
+    
+    # Backup befintlig config
+    if [ "$FRIGATE_READY" == "true" ] && [ "$EXISTING_CONFIG" == "true" ]; then
+        BACKUP_NAME="config.yml.backup.$(date +%Y%m%d_%H%M%S)"
+        pct exec ${IP_FRIGATE} -- cp /opt/frigate/config/config.yml "/opt/frigate/config/${BACKUP_NAME}" 2>/dev/null
+        msg_ok "Backup skapad: /opt/frigate/config/${BACKUP_NAME}"
+    fi
+fi
+
+# ============================================================
+# BANNER
+# ============================================================
 print_banner "Kamera-konfiguration" \
 "Denna modul hjälper dig att:
-  1. Hitta Axis-kameror på nätverket (eller ange manuellt)
+  1. Hitta kameror på nätverket (eller ange manuellt)
   2. Namnge varje kamera
   3. Generera en komplett Frigate config.yml
 
@@ -25,9 +93,33 @@ if ! ask_yes_no "Vill du konfigurera kameror och generera Frigate-config nu?" "Y
 fi
 
 # ============================================================
-# STEG 1: Hitta kameror
+# STEG 1: Kameratyp
 # ============================================================
-msg_header "Steg 1: Hitta kameror"
+msg_header "Steg 1: Kameratyp"
+
+echo -e "\n  ${BOLD}Vilken typ av kameror har du?${NC}" > /dev/tty
+echo -e "  1) Axis (rekommenderat — dual stream profiles)" > /dev/tty
+echo -e "  2) Annat märke (Hikvision, Dahua, Reolink, etc.)" > /dev/tty
+echo -e "  3) Blandat (Axis + andra)" > /dev/tty
+echo -ne "\n  ${BOLD}Välj [1/2/3]: ${NC}" > /dev/tty
+read CAM_BRAND < /dev/tty
+CAM_BRAND="${CAM_BRAND:-1}"
+
+if [ "$CAM_BRAND" == "2" ] || [ "$CAM_BRAND" == "3" ]; then
+    echo "" > /dev/tty
+    msg_info "För icke-Axis-kameror genereras generiska RTSP-URLs."
+    msg_info "Du behöver fylla i rätt RTSP-path för ditt kameramärke i config.yml efteråt."
+    echo -e "  ${DIM}Vanliga RTSP-paths:${NC}" > /dev/tty
+    echo -e "  ${DIM}  Hikvision: /Streaming/Channels/101 (main), /Streaming/Channels/102 (sub)${NC}" > /dev/tty
+    echo -e "  ${DIM}  Dahua:     /cam/realmonitor?channel=1&subtype=0 (main), subtype=1 (sub)${NC}" > /dev/tty
+    echo -e "  ${DIM}  Reolink:   /h264Preview_01_main (main), /h264Preview_01_sub (sub)${NC}" > /dev/tty
+    echo "" > /dev/tty
+fi
+
+# ============================================================
+# STEG 2: Hitta kameror
+# ============================================================
+msg_header "Steg 2: Hitta kameror"
 
 declare -a CAM_IPS=()
 declare -a CAM_NAMES=()
@@ -36,61 +128,75 @@ declare -a CAM_CODECS=()
 declare -a CAM_DETECT_W=()
 declare -a CAM_DETECT_H=()
 declare -a CAM_DETECT_FPS=()
-declare -a CAM_TYPES=()  # "streamprofile" eller "resolution"
+declare -a CAM_TYPES=()
+declare -a CAM_BRANDS=()
 
 echo -e "\n  ${BOLD}Hur vill du lägga till kameror?${NC}" > /dev/tty
 echo -e "  1) Skanna nätverket automatiskt (nmap)" > /dev/tty
-echo -e "  2) Ange antal kameror manuellt" > /dev/tty
+echo -e "  2) Ange antal kameror (fyll i IP senare i config)" > /dev/tty
 echo -e "  3) Ange IP-adresser manuellt" > /dev/tty
 echo -ne "\n  ${BOLD}Välj [1/2/3]: ${NC}" > /dev/tty
 read CAM_METHOD < /dev/tty
 
 case "$CAM_METHOD" in
     1)
-        # Automatisk skanning
+        # Automatisk skanning — installera nmap om det saknas
         if ! command -v nmap &> /dev/null; then
-            msg_info "Installerar nmap för nätverksskanning..."
-            apt-get update -qq > /dev/null && apt-get install -y nmap > /dev/null
+            msg_info "nmap behövs för nätverksskanning. Installerar..."
+            if apt-get update -qq > /dev/null 2>&1 && apt-get install -y nmap > /dev/null 2>&1; then
+                msg_ok "nmap installerat"
+            else
+                msg_warn "Kunde inte installera nmap automatiskt."
+                msg_info "Installera manuellt: apt install nmap"
+                msg_info "Byter till manuell inmatning istället."
+                CAM_METHOD="2"
+            fi
         fi
         
-        msg_info "Skannar nätverket (${NETWORK_PREFIX}.0/24) efter Axis-enheter..."
-        SCAN_RES=$(nmap -sn ${NETWORK_PREFIX}.0/24 2>/dev/null | grep -B 2 -i -E "Axis|00:40:8C|AC:CC:8E" || true)
-        
-        while read -r line; do
-            if [[ $line == *"Nmap scan report for"* ]]; then
-                ip=$(echo "$line" | grep -oE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}')
-                if [ -n "$ip" ]; then
-                    CAM_IPS+=("$ip")
+        if [ "$CAM_METHOD" == "1" ]; then
+            msg_info "Skannar nätverket (${NETWORK_PREFIX}.0/24)..."
+            msg_info "Letar efter kameror (Axis MAC: 00:40:8C, AC:CC:8E)..."
+            SCAN_RES=$(nmap -sn ${NETWORK_PREFIX}.0/24 2>/dev/null | grep -B 2 -i -E "Axis|00:40:8C|AC:CC:8E|camera|ipcam" || true)
+            
+            while read -r line; do
+                if [[ $line == *"Nmap scan report for"* ]]; then
+                    ip=$(echo "$line" | grep -oE '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}')
+                    if [ -n "$ip" ]; then
+                        CAM_IPS+=("$ip")
+                    fi
                 fi
-            fi
-        done <<< "$SCAN_RES"
-        
-        if [ ${#CAM_IPS[@]} -eq 0 ]; then
-            msg_warn "Hittade inga Axis-kameror automatiskt."
-            msg_info "Du kan ange IP-adresser manuellt istället."
-            NUM_CAMS=$(ask_string "Hur många kameror har du?" "4")
-            for ((i=1; i<=NUM_CAMS; i++)); do
-                ip=$(ask_string "IP-adress för kamera $i" "${NETWORK_PREFIX}.")
-                CAM_IPS+=("$ip")
-            done
-        else
-            msg_ok "Hittade ${#CAM_IPS[@]} Axis-enheter: ${CAM_IPS[*]}"
-            if ! ask_yes_no "Stämmer dessa?" "Y"; then
-                CAM_IPS=()
+            done <<< "$SCAN_RES"
+            
+            if [ ${#CAM_IPS[@]} -eq 0 ]; then
+                msg_warn "Hittade inga kameror automatiskt."
+                msg_info "Möjliga orsaker: kamerorna är på annat VLAN, eller MAC-filter matchar inte."
+                msg_info "Du kan ange IP-adresser manuellt istället."
                 NUM_CAMS=$(ask_string "Hur många kameror har du?" "4")
                 for ((i=1; i<=NUM_CAMS; i++)); do
                     ip=$(ask_string "IP-adress för kamera $i" "${NETWORK_PREFIX}.")
                     CAM_IPS+=("$ip")
                 done
+            else
+                msg_ok "Hittade ${#CAM_IPS[@]} kameror: ${CAM_IPS[*]}"
+                if ! ask_yes_no "Stämmer dessa?" "Y"; then
+                    CAM_IPS=()
+                    NUM_CAMS=$(ask_string "Hur många kameror har du?" "4")
+                    for ((i=1; i<=NUM_CAMS; i++)); do
+                        ip=$(ask_string "IP-adress för kamera $i" "${NETWORK_PREFIX}.")
+                        CAM_IPS+=("$ip")
+                    done
+                fi
             fi
         fi
-        ;;
+        ;;&  # Fall through to check if we switched to method 2
     2)
-        NUM_CAMS=$(ask_string "Hur många kameror har du?" "4")
-        msg_info "Du kan fylla i IP-adresser i config.yml efteråt."
-        for ((i=1; i<=NUM_CAMS; i++)); do
-            CAM_IPS+=("KAMERA_${i}_IP")
-        done
+        if [ ${#CAM_IPS[@]} -eq 0 ]; then
+            NUM_CAMS=$(ask_string "Hur många kameror har du?" "4")
+            msg_info "IP-adresser sätts som placeholders — fyll i dem i config.yml efteråt."
+            for ((i=1; i<=NUM_CAMS; i++)); do
+                CAM_IPS+=("KAMERA_${i}_IP")
+            done
+        fi
         ;;
     3)
         MANUAL_IPS=$(ask_string "Ange IP-adresser separerade med mellanslag" "")
@@ -112,9 +218,9 @@ if [ ${#CAM_IPS[@]} -eq 0 ]; then
 fi
 
 # ============================================================
-# STEG 2: Namnge och konfigurera varje kamera
+# STEG 3: Namnge och konfigurera varje kamera
 # ============================================================
-msg_header "Steg 2: Namnge kameror"
+msg_header "Steg 3: Namnge kameror"
 
 echo -e "\n  ${CYAN}╔════════════════════════════════════════════════════════════╗${NC}" > /dev/tty
 echo -e "  ${CYAN}║${NC} ${BOLD}Kameratyper:${NC}                                              ${CYAN}║${NC}" > /dev/tty
@@ -136,6 +242,16 @@ for ((i=0; i<${#CAM_IPS[@]}; i++)); do
     name=$(echo "$name" | tr '[:upper:]' '[:lower:]' | tr ' ' '_' | tr -cd 'a-z0-9_')
     CAM_NAMES+=("$name")
     
+    # Brand per kamera (om blandat)
+    if [ "$CAM_BRAND" == "3" ]; then
+        brand=$(ask_string "  Märke [axis/other]" "axis")
+    elif [ "$CAM_BRAND" == "2" ]; then
+        brand="other"
+    else
+        brand="axis"
+    fi
+    CAM_BRANDS+=("$brand")
+    
     # Typ
     cam_type=$(ask_string "  Typ [single/multi]" "single")
     
@@ -143,7 +259,6 @@ for ((i=0; i<${#CAM_IPS[@]}; i++)); do
         channels=$(ask_string "  Antal kanaler" "3")
         CAM_CHANNELS+=("$channels")
         CAM_TYPES+=("multi")
-        # Multi-channel: resolution-baserade URLs
         detect_w=$(ask_string "  Detect-bredd per kanal" "1280")
         detect_h=$(ask_string "  Detect-höjd per kanal" "960")
         detect_fps=$(ask_string "  Detect FPS per kanal" "5")
@@ -154,7 +269,6 @@ for ((i=0; i<${#CAM_IPS[@]}; i++)); do
     else
         CAM_CHANNELS+=("1")
         CAM_TYPES+=("single")
-        # Single: streamprofile-baserade URLs
         codec=$(ask_string "  Codec [h264/h265]" "h265")
         detect_w=$(ask_string "  Detect-bredd" "1280")
         detect_h=$(ask_string "  Detect-höjd" "960")
@@ -167,9 +281,9 @@ for ((i=0; i<${#CAM_IPS[@]}; i++)); do
 done
 
 # ============================================================
-# STEG 3: Credentials
+# STEG 4: Credentials
 # ============================================================
-msg_header "Steg 3: Credentials"
+msg_header "Steg 4: Credentials"
 
 echo -e "\n  Frigate ansluter till kamerorna via RTSP." > /dev/tty
 echo -e "  Du behöver en användare på kamerorna med Viewer/Operator-behörighet.\n" > /dev/tty
@@ -178,15 +292,38 @@ RTSP_USER=$(ask_string "RTSP-användarnamn (samma för alla kameror)" "frigate")
 RTSP_PASS=$(ask_string "RTSP-lösenord" "${CT_PASSWORD}" "true")
 
 echo "" > /dev/tty
-msg_info "MQTT används för att skicka händelser till Home Assistant."
-MQTT_HOST=$(ask_string "MQTT-host (vanligtvis din HA-IP)" "${NETWORK_PREFIX}.${IP_HA}")
-MQTT_USER=$(ask_string "MQTT-användarnamn" "mosquitto")
-MQTT_PASS=$(ask_string "MQTT-lösenord" "" "true")
+echo -e "  ${CYAN}╔════════════════════════════════════════════════════════════╗${NC}" > /dev/tty
+echo -e "  ${CYAN}║${NC} ${BOLD}MQTT — Frigate → Home Assistant${NC}                             ${CYAN}║${NC}" > /dev/tty
+echo -e "  ${CYAN}╠════════════════════════════════════════════════════════════╣${NC}" > /dev/tty
+echo -e "  ${CYAN}║${NC}  MQTT-brokern (Mosquitto) körs som add-on i HA.            ${CYAN}║${NC}" > /dev/tty
+echo -e "  ${CYAN}║${NC}  Om HA inte är klar ännu: ange credentials nu, konfigurera ${CYAN}║${NC}" > /dev/tty
+echo -e "  ${CYAN}║${NC}  Mosquitto i HA senare. Frigate startar ändå men loggar     ${CYAN}║${NC}" > /dev/tty
+echo -e "  ${CYAN}║${NC}  'MQTT connection failed' tills brokern är igång.           ${CYAN}║${NC}" > /dev/tty
+echo -e "  ${CYAN}╚════════════════════════════════════════════════════════════╝${NC}" > /dev/tty
+echo "" > /dev/tty
+
+MQTT_HOST=$(ask_string "MQTT-host (din HA-IP, Mosquitto körs där)" "${NETWORK_PREFIX}.${IP_HA}")
+MQTT_USER=$(ask_string "MQTT-användarnamn (skapa denna i HA → Användare)" "mqtt-user")
+MQTT_PASS=$(ask_string "MQTT-lösenord (samma som du sätter i HA)" "" "true")
+
+# Testa MQTT-anslutning om möjligt
+MQTT_STATUS="unknown"
+if command -v nc &>/dev/null && [[ "$MQTT_HOST" != *"_IP"* ]]; then
+    if nc -z -w 2 "$MQTT_HOST" 1883 2>/dev/null; then
+        msg_ok "MQTT-broker svarar på ${MQTT_HOST}:1883"
+        MQTT_STATUS="reachable"
+    else
+        msg_warn "MQTT-broker svarar INTE på ${MQTT_HOST}:1883"
+        msg_info "Detta är normalt om HA/Mosquitto inte är installerat ännu."
+        msg_info "Frigate startar ändå — MQTT ansluts när brokern är igång."
+        MQTT_STATUS="unreachable"
+    fi
+fi
 
 # ============================================================
-# STEG 4: Google Gemini AI (valfritt)
+# STEG 5: Google Gemini AI (valfritt)
 # ============================================================
-msg_header "Steg 4: Google Gemini AI (valfritt)"
+msg_header "Steg 5: Google Gemini AI (valfritt)"
 
 echo -e "\n  ${CYAN}╔════════════════════════════════════════════════════════════╗${NC}" > /dev/tty
 echo -e "  ${CYAN}║${NC} ${BOLD}Google Gemini AI-integration${NC}                                ${CYAN}║${NC}" > /dev/tty
@@ -211,14 +348,11 @@ if ask_yes_no "Vill du konfigurera Google Gemini AI nu?" "N"; then
 fi
 
 # ============================================================
-# STEG 5: Generera config.yml
+# STEG 6: Generera config.yml
 # ============================================================
-msg_header "Steg 5: Genererar Frigate config.yml"
+msg_header "Steg 6: Genererar Frigate config.yml"
 
-# Bestäm Frigate-IP
-FRIGATE_IP="${NETWORK_PREFIX}.${IP_FRIGATE}"
-
-# Bygg go2rtc streams
+# Bygg go2rtc streams och camera blocks
 GO2RTC_STREAMS=""
 CAMERAS_BLOCK=""
 CAMERA_GROUP_ALL=""
@@ -232,10 +366,9 @@ for ((i=0; i<${#CAM_IPS[@]}; i++)); do
     det_w="${CAM_DETECT_W[$i]}"
     det_h="${CAM_DETECT_H[$i]}"
     det_fps="${CAM_DETECT_FPS[$i]}"
+    brand="${CAM_BRANDS[$i]}"
     
     if [ "$cam_type" == "multi" ]; then
-        # Multi-channel kamera (t.ex. Axis P3265-LVE med 3 linser)
-        # Generera sub-namn: name_vanster, name_center, name_hoger (eller 1,2,3)
         for ((ch=1; ch<=channels; ch++)); do
             if [ "$channels" -eq 3 ]; then
                 case $ch in
@@ -249,13 +382,11 @@ for ((i=0; i<${#CAM_IPS[@]}; i++)); do
             
             cam_full_name="${name}_${suffix}"
             
-            # go2rtc stream (main = full res, sub = detect res)
             GO2RTC_STREAMS+="    ${cam_full_name}:\n"
             GO2RTC_STREAMS+="      - rtsp://\${FRIGATE_RTSP_USER}:\${FRIGATE_RTSP_PASSWORD}@${ip}/axis-media/media.amp?camera=${ch}&resolution=2560x1920&fps=15&videocodec=h264&audio=1\n"
             GO2RTC_STREAMS+="    ${cam_full_name}_sub:\n"
             GO2RTC_STREAMS+="      - rtsp://\${FRIGATE_RTSP_USER}:\${FRIGATE_RTSP_PASSWORD}@${ip}/axis-media/media.amp?camera=${ch}&resolution=${det_w}x${det_h}&fps=${det_fps}&videocodec=h264\n"
             
-            # Camera block
             CAMERAS_BLOCK+="  ${cam_full_name}:\n"
             CAMERAS_BLOCK+="    enabled: true\n"
             CAMERAS_BLOCK+="    ffmpeg:\n"
@@ -273,25 +404,31 @@ for ((i=0; i<${#CAM_IPS[@]}; i++)); do
             CAMERAS_BLOCK+="      width: ${det_w}\n"
             CAMERAS_BLOCK+="      height: ${det_h}\n"
             CAMERAS_BLOCK+="      fps: ${det_fps}\n"
-            CAMERAS_BLOCK+="    # Zoner och masker — konfigurera i Frigate UI:\n"
+            CAMERAS_BLOCK+="    # Zoner och masker — konfigurera i Frigate UI\n"
             CAMERAS_BLOCK+="    # zones:\n"
             CAMERAS_BLOCK+="    #   min_zon:\n"
             CAMERAS_BLOCK+="    #     coordinates: 0,0,1,0,1,1,0,1\n"
-            CAMERAS_BLOCK+="    #     objects: person\n"
-            CAMERAS_BLOCK+="    #     friendly_name: Min zon\n"
+            CAMERAS_BLOCK+="    #     objects:\n"
+            CAMERAS_BLOCK+="    #       - person\n"
             CAMERAS_BLOCK+="\n"
-            
-            # Camera group
             CAMERA_GROUP_ALL+="      - ${cam_full_name}\n"
         done
     else
-        # Single-channel kamera (streamprofile-baserad)
-        GO2RTC_STREAMS+="    ${name}:\n"
-        GO2RTC_STREAMS+="      - rtsp://\${FRIGATE_RTSP_USER}:\${FRIGATE_RTSP_PASSWORD}@${ip}/axis-media/media.amp?streamprofile=main&videocodec=${codec}&audio=1\n"
-        GO2RTC_STREAMS+="    ${name}_sub:\n"
-        GO2RTC_STREAMS+="      - rtsp://\${FRIGATE_RTSP_USER}:\${FRIGATE_RTSP_PASSWORD}@${ip}/axis-media/media.amp?streamprofile=detect&videocodec=${codec}\n"
+        # Single-channel
+        if [ "$brand" == "axis" ]; then
+            # Axis: streamprofile-baserade URLs
+            GO2RTC_STREAMS+="    ${name}:\n"
+            GO2RTC_STREAMS+="      - rtsp://\${FRIGATE_RTSP_USER}:\${FRIGATE_RTSP_PASSWORD}@${ip}/axis-media/media.amp?streamprofile=main&videocodec=${codec}&audio=1\n"
+            GO2RTC_STREAMS+="    ${name}_sub:\n"
+            GO2RTC_STREAMS+="      - rtsp://\${FRIGATE_RTSP_USER}:\${FRIGATE_RTSP_PASSWORD}@${ip}/axis-media/media.amp?streamprofile=detect&videocodec=${codec}\n"
+        else
+            # Generisk: placeholder-URLs som användaren fyller i
+            GO2RTC_STREAMS+="    ${name}:  # BYT RTSP-PATH till rätt för ditt kameramärke\n"
+            GO2RTC_STREAMS+="      - rtsp://\${FRIGATE_RTSP_USER}:\${FRIGATE_RTSP_PASSWORD}@${ip}/MAIN_STREAM_PATH\n"
+            GO2RTC_STREAMS+="    ${name}_sub:  # BYT RTSP-PATH\n"
+            GO2RTC_STREAMS+="      - rtsp://\${FRIGATE_RTSP_USER}:\${FRIGATE_RTSP_PASSWORD}@${ip}/SUB_STREAM_PATH\n"
+        fi
         
-        # Camera block
         CAMERAS_BLOCK+="  ${name}:\n"
         CAMERAS_BLOCK+="    enabled: true\n"
         CAMERAS_BLOCK+="    ffmpeg:\n"
@@ -309,48 +446,40 @@ for ((i=0; i<${#CAM_IPS[@]}; i++)); do
         CAMERAS_BLOCK+="      width: ${det_w}\n"
         CAMERAS_BLOCK+="      height: ${det_h}\n"
         CAMERAS_BLOCK+="      fps: ${det_fps}\n"
-        CAMERAS_BLOCK+="    # Zoner och masker — konfigurera i Frigate UI:\n"
+        CAMERAS_BLOCK+="    # Zoner och masker — konfigurera i Frigate UI\n"
         CAMERAS_BLOCK+="    # zones:\n"
         CAMERAS_BLOCK+="    #   min_zon:\n"
         CAMERAS_BLOCK+="    #     coordinates: 0,0,1,0,1,1,0,1\n"
-        CAMERAS_BLOCK+="    #     objects: person\n"
-        CAMERAS_BLOCK+="    #     friendly_name: Min zon\n"
+        CAMERAS_BLOCK+="    #     objects:\n"
+        CAMERAS_BLOCK+="    #       - person\n"
         CAMERAS_BLOCK+="\n"
-        
-        # Camera group
         CAMERA_GROUP_ALL+="      - ${name}\n"
     fi
 done
 
 # ============================================================
-# STEG 6: Skriv config.yml
+# STEG 7: Skriv config.yml från template
 # ============================================================
 
-# Läs template och ersätt placeholders
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEMPLATE_FILE="${SCRIPT_DIR}/../configs/frigate-config-template.yml"
 
 if [ ! -f "$TEMPLATE_FILE" ]; then
-    msg_warn "Template-fil saknas, genererar direkt..."
-    TEMPLATE_FILE="/tmp/frigate-template.yml"
-    # Fallback: generera inline (kopierat från template)
+    msg_err "Template-fil saknas: $TEMPLATE_FILE"
+    msg_info "Kontrollera att repot är komplett. Kör: git pull"
+    exit 1
 fi
 
 CONFIG_OUTPUT="/tmp/frigate-config-generated.yml"
-
-# Kopiera template och ersätt placeholders
 cp "$TEMPLATE_FILE" "$CONFIG_OUTPUT"
 
-# Ersätt MQTT
+# Ersätt placeholders
 sed -i "s|__MQTT_HOST__|${MQTT_HOST}|g" "$CONFIG_OUTPUT"
-
-# Ersätt Frigate IP
 sed -i "s|__FRIGATE_IP__|${FRIGATE_IP}|g" "$CONFIG_OUTPUT"
 
-# Ersätt go2rtc streams (multi-line)
-# Använd python för multi-line replacement
+# Multi-line replacement via python
 python3 << PYEOF
-import re
+import sys
 
 with open("$CONFIG_OUTPUT", "r") as f:
     content = f.read()
@@ -372,15 +501,18 @@ content = content.replace("__CAMERA_GROUP_ALL__", group_all)
 
 # Aktivera GenAI om nyckel angavs
 gemini_key = """${GEMINI_KEY}"""
-if gemini_key:
-    # Uncomment genai section
-    content = content.replace("#genai:\n#  gemini:\n#    provider: gemini\n#    api_key: '{FRIGATE_GEMINI_API_KEY}'\n#    model: gemini-2.5-flash-lite",
-        "genai:\n  gemini:\n    provider: gemini\n    api_key: '{FRIGATE_GEMINI_API_KEY}'\n    model: gemini-2.5-flash-lite")
-    # Uncomment objects.genai
-    content = content.replace("#genai:\n  #  enabled: true", "genai:\n    enabled: true")
-    # Uncomment review.genai
-    content = content.replace("#review:\n#  genai:\n#    enabled: true\n#    alerts: true\n#    detections: false",
-        "review:\n  genai:\n    enabled: true\n    alerts: true\n    detections: false")
+if gemini_key.strip():
+    content = content.replace("#genai:", "genai:")
+    content = content.replace("#  gemini:", "  gemini:")
+    content = content.replace("#    provider: gemini", "    provider: gemini")
+    content = content.replace("#    api_key: '{FRIGATE_GEMINI_API_KEY}'", "    api_key: '{FRIGATE_GEMINI_API_KEY}'")
+    content = content.replace("#    model: gemini-2.5-flash-lite", "    model: gemini-2.5-flash-lite")
+
+# Lägg till MQTT-statuskommentar
+mqtt_status = "$MQTT_STATUS"
+if mqtt_status == "unreachable":
+    mqtt_comment = "# OBS: MQTT-broker svarade inte vid konfiguration.\\n# Installera Mosquitto i HA och skapa användare '$MQTT_USER' med samma lösenord.\\n# Frigate loggar 'MQTT connection failed' tills brokern är igång.\\n"
+    content = content.replace("mqtt:\\n", mqtt_comment + "mqtt:\\n", 1)
 
 with open("$CONFIG_OUTPUT", "w") as f:
     f.write(content)
@@ -389,7 +521,7 @@ PYEOF
 msg_ok "config.yml genererad!"
 
 # ============================================================
-# STEG 7: Skriv .env-fil för Docker
+# STEG 8: Skriv .env-fil
 # ============================================================
 ENV_OUTPUT="/tmp/frigate-env-generated"
 
@@ -397,12 +529,14 @@ cat > "$ENV_OUTPUT" << EOF
 # Frigate Environment Variables
 # Placeras i /opt/frigate/.env
 # Docker Compose läser dessa automatiskt.
+# ────────────────────────────────────────────
 
 # RTSP-credentials (samma för alla kameror)
 FRIGATE_RTSP_USER=${RTSP_USER}
 FRIGATE_RTSP_PASSWORD=${RTSP_PASS}
 
-# MQTT-credentials
+# MQTT-credentials (Mosquitto i Home Assistant)
+# Skapa denna användare i HA: Inställningar → Personer → Användare
 FRIGATE_MQTT_USER=${MQTT_USER}
 FRIGATE_MQTT_PASSWORD=${MQTT_PASS}
 EOF
@@ -410,7 +544,7 @@ EOF
 if [ -n "$GEMINI_KEY" ]; then
     cat >> "$ENV_OUTPUT" << EOF
 
-# Google Gemini AI
+# Google Gemini AI (genererar händelsebeskrivningar)
 FRIGATE_GEMINI_API_KEY=${GEMINI_KEY}
 EOF
 fi
@@ -418,7 +552,7 @@ fi
 msg_ok ".env-fil genererad!"
 
 # ============================================================
-# STEG 8: Pusha till Frigate-container (om den finns)
+# STEG 9: Pusha till Frigate-container (om den är redo)
 # ============================================================
 echo "" > /dev/tty
 
@@ -435,20 +569,19 @@ done
 echo -e "  ${GREEN}╔════════════════════════════════════════════════════════════╗${NC}" > /dev/tty
 echo -e "  ${GREEN}║${NC} ${BOLD}Sammanfattning${NC}                                              ${GREEN}║${NC}" > /dev/tty
 echo -e "  ${GREEN}╠════════════════════════════════════════════════════════════╣${NC}" > /dev/tty
-echo -e "  ${GREEN}║${NC}  Antal kameravyer:  ${BOLD}${TOTAL_CAMS}${NC}                                       ${GREEN}║${NC}" > /dev/tty
-echo -e "  ${GREEN}║${NC}  RTSP-användare:    ${BOLD}${RTSP_USER}${NC}                                   ${GREEN}║${NC}" > /dev/tty
-echo -e "  ${GREEN}║${NC}  MQTT-host:         ${BOLD}${MQTT_HOST}${NC}                          ${GREEN}║${NC}" > /dev/tty
-echo -e "  ${GREEN}║${NC}  Gemini AI:         ${BOLD}$([ -n "$GEMINI_KEY" ] && echo "Aktiverad" || echo "Ej konfigurerad")${NC}                          ${GREEN}║${NC}" > /dev/tty
+printf "  ${GREEN}║${NC}  Antal kameravyer:  ${BOLD}%-38s${NC} ${GREEN}║${NC}\n" "$TOTAL_CAMS" > /dev/tty
+printf "  ${GREEN}║${NC}  RTSP-användare:    ${BOLD}%-38s${NC} ${GREEN}║${NC}\n" "$RTSP_USER" > /dev/tty
+printf "  ${GREEN}║${NC}  MQTT-host:         ${BOLD}%-38s${NC} ${GREEN}║${NC}\n" "$MQTT_HOST" > /dev/tty
+printf "  ${GREEN}║${NC}  MQTT-status:       ${BOLD}%-38s${NC} ${GREEN}║${NC}\n" "$([ "$MQTT_STATUS" == "reachable" ] && echo "Ansluten" || echo "Ej nåbar (konfigureras i HA)")" > /dev/tty
+printf "  ${GREEN}║${NC}  Gemini AI:         ${BOLD}%-38s${NC} ${GREEN}║${NC}\n" "$([ -n "$GEMINI_KEY" ] && echo "Aktiverad" || echo "Ej konfigurerad")" > /dev/tty
 echo -e "  ${GREEN}╚════════════════════════════════════════════════════════════╝${NC}" > /dev/tty
 
 echo "" > /dev/tty
 
-# Kolla om Frigate-container finns och är igång
-if pct status ${IP_FRIGATE} 2>/dev/null | grep -q "running"; then
+if [ "$FRIGATE_READY" == "true" ]; then
     if ask_yes_no "Vill du pusha konfigurationen till Frigate-containern (CT ${IP_FRIGATE}) nu?" "Y"; then
         msg_info "Pushar config.yml och .env till Frigate..."
         
-        # Pusha config
         pct push ${IP_FRIGATE} "$CONFIG_OUTPUT" /opt/frigate/config/config.yml
         pct push ${IP_FRIGATE} "$ENV_OUTPUT" /opt/frigate/.env
         
@@ -459,9 +592,18 @@ if pct status ${IP_FRIGATE} 2>/dev/null | grep -q "running"; then
         sleep 5
         if pct exec ${IP_FRIGATE} -- bash -c "docker ps | grep -q frigate" 2>/dev/null; then
             msg_ok "Frigate körs med ny konfiguration!"
+            
+            # MQTT-status varning
+            if [ "$MQTT_STATUS" == "unreachable" ]; then
+                echo "" > /dev/tty
+                msg_warn "MQTT-broker är inte nåbar ännu."
+                msg_info "Frigate fungerar lokalt men skickar INTE händelser till HA."
+                msg_info "Åtgärd: Installera Mosquitto add-on i HA och skapa användare '${MQTT_USER}'."
+                msg_info "Frigate ansluter automatiskt när brokern startar."
+            fi
         else
             msg_warn "Frigate verkar inte ha startat korrekt. Kolla loggar:"
-            msg_info "  pct exec ${IP_FRIGATE} -- docker logs frigate"
+            msg_info "  pct exec ${IP_FRIGATE} -- docker logs frigate --tail 50"
         fi
     else
         msg_info "Config sparad lokalt. Du kan pusha manuellt:"
@@ -469,29 +611,27 @@ if pct status ${IP_FRIGATE} 2>/dev/null | grep -q "running"; then
         msg_info "  pct push ${IP_FRIGATE} ${ENV_OUTPUT} /opt/frigate/.env"
     fi
 else
-    msg_warn "Frigate-containern (CT ${IP_FRIGATE}) körs inte just nu."
-    
     # Spara lokalt
     SAVE_DIR="/opt/optiplex-homelab/generated"
     mkdir -p "$SAVE_DIR"
     cp "$CONFIG_OUTPUT" "$SAVE_DIR/frigate-config.yml"
     cp "$ENV_OUTPUT" "$SAVE_DIR/frigate.env"
     
-    msg_info "Konfigurationen har sparats i:"
+    msg_ok "Konfigurationen har sparats lokalt:"
     msg_info "  Config: ${SAVE_DIR}/frigate-config.yml"
     msg_info "  Env:    ${SAVE_DIR}/frigate.env"
     msg_info ""
-    msg_info "När Frigate är igång, pusha med:"
+    msg_info "När Frigate-containern är igång, pusha med:"
     msg_info "  pct push ${IP_FRIGATE} ${SAVE_DIR}/frigate-config.yml /opt/frigate/config/config.yml"
     msg_info "  pct push ${IP_FRIGATE} ${SAVE_DIR}/frigate.env /opt/frigate/.env"
     msg_info "  pct exec ${IP_FRIGATE} -- bash -c 'cd /opt/frigate && docker compose restart'"
 fi
 
-# Cleanup
+# Cleanup temp
 rm -f "$CONFIG_OUTPUT" "$ENV_OUTPUT"
 
 # ============================================================
-# STEG 9: Kamera-instruktioner
+# STEG 10: Instruktioner
 # ============================================================
 echo "" > /dev/tty
 echo -e "  ${YELLOW}════════════════════════════════════════════════════════════════${NC}" > /dev/tty
@@ -506,12 +646,21 @@ echo -e "     - Användarnamn: ${GREEN}${RTSP_USER}${NC}" > /dev/tty
 echo -e "     - Lösenord: (det du angav ovan)" > /dev/tty
 echo -e "     - Roll: Viewer eller Operator" > /dev/tty
 echo -e "" > /dev/tty
-echo -e "  ${BOLD}2. Skapa stream-profiler (om kameran stöder det):${NC}" > /dev/tty
+echo -e "  ${BOLD}2. Skapa stream-profiler (Axis-kameror):${NC}" > /dev/tty
 echo -e "     Video → Stream profiles:" > /dev/tty
 echo -e "     Profil '${GREEN}main${NC}': Max upplösning, 15 fps, H.264/H.265" > /dev/tty
 echo -e "     Profil '${GREEN}detect${NC}': Låg upplösning (640x480), 5 fps, H.264" > /dev/tty
 echo -e "" > /dev/tty
-echo -e "  ${BOLD}3. Nästa steg:${NC}" > /dev/tty
+
+# Icke-Axis-varning
+if [ "$CAM_BRAND" == "2" ] || [ "$CAM_BRAND" == "3" ]; then
+    echo -e "  ${BOLD}3. Icke-Axis-kameror:${NC}" > /dev/tty
+    echo -e "     Redigera config.yml och byt RTSP-path till rätt för ditt märke." > /dev/tty
+    echo -e "     Sök efter 'MAIN_STREAM_PATH' och 'SUB_STREAM_PATH' i filen." > /dev/tty
+    echo -e "" > /dev/tty
+fi
+
+echo -e "  ${BOLD}Nästa steg:${NC}" > /dev/tty
 echo -e "     - Öppna Frigate UI: http://${FRIGATE_IP}:5000" > /dev/tty
 echo -e "     - Verifiera att alla kameror syns" > /dev/tty
 echo -e "     - Rita zoner och masker i UI:t" > /dev/tty

@@ -31,6 +31,64 @@ source lib/ui.sh
 source lib/config.sh
 source lib/proxmox.sh
 source lib/network.sh
+source lib/rollback.sh
+
+# ==========================================
+# PREFLIGHT: Verifiera att alla funktioner finns
+# ==========================================
+PREFLIGHT_OK=true
+for fn in msg_info msg_ok msg_warn msg_err msg_skip show_progress ask_yes_no ask_string \
+          load_config save_config get_state set_state \
+          check_is_proxmox check_id_exists get_debian_template find_storage_pool \
+          detect_network confirm_network \
+          rollback_register rollback_offer rollback_clear; do
+    if ! type "$fn" &>/dev/null; then
+        echo "FATAL: Funktion '$fn' saknas! Kontrollera att lib/-filerna är kompletta."
+        PREFLIGHT_OK=false
+    fi
+done
+if [ "$PREFLIGHT_OK" != "true" ]; then
+    echo "Avbryter — lib-filer är korrupta eller saknas."
+    exit 1
+fi
+
+# ==========================================
+# TRAP: Fånga Ctrl+C och erbjud cleanup
+# ==========================================
+cleanup_on_exit() {
+    local exit_code=$?
+    if [ $exit_code -ne 0 ] && [ "$DRY_RUN" != "true" ]; then
+        echo ""
+        echo -e "${RED}${BOLD}  ⚠ Installationen avbröts (signal/fel)!${NC}"
+        echo ""
+        if [ -f "/tmp/.optiplex_rollback_stack" ] && [ -s "/tmp/.optiplex_rollback_stack" ]; then
+            echo -e "  Följande resurser skapades innan avbrottet:"
+            cat /tmp/.optiplex_rollback_stack | while IFS=: read -r type id name; do
+                echo -e "    ${YELLOW}${type} ${id} (${name})${NC}"
+            done
+            echo ""
+            echo -ne "  ${BOLD}Vill du ta bort dem? [y/N]: ${NC}"
+            read -t 10 answer < /dev/tty 2>/dev/null || answer="n"
+            if [[ "$answer" =~ ^[Yy]$ ]]; then
+                while [ -s "/tmp/.optiplex_rollback_stack" ]; do
+                    rollback_last
+                done
+            else
+                echo -e "  OK. Resurserna finns kvar. Ta bort manuellt med:"
+                echo -e "    ${YELLOW}pct destroy <ID> --purge${NC}  (containers)"
+                echo -e "    ${YELLOW}qm destroy <ID> --purge${NC}   (VMs)"
+            fi
+        fi
+        echo ""
+        echo -e "  Logg: /var/log/optiplex-setup.log"
+        echo -e "  Kör om: ${YELLOW}cd /opt/optiplex-homelab/scripts && bash setup.sh${NC}"
+        echo ""
+    fi
+    # Rensa temp-filer
+    rm -f /tmp/frigate-config-generated.yml /tmp/frigate-env-generated 2>/dev/null
+}
+trap cleanup_on_exit EXIT
+trap 'exit 130' INT TERM
 
 # Totalt antal steg (för progressbar)
 TOTAL_STEPS=9
@@ -44,7 +102,7 @@ clear
 if [ "$DRY_RUN" == "true" ]; then
     echo -e "${YELLOW}${BOLD}"
     echo "  ╔═══════════════════════════════════════════════════════╗"
-    echo "  ║         🏜️  DRY-RUN MODE — INGET ÄNDRAS              ║"
+    echo "  ║         DRY-RUN MODE — INGET ÄNDRAS                  ║"
     echo "  ║   Visar vad som SKULLE hända vid en riktig körning   ║"
     echo "  ╚═══════════════════════════════════════════════════════╝"
     echo -e "${NC}\n"
@@ -87,7 +145,19 @@ else
     fi
     
     NODE_HOSTNAME=$(ask_string "Namn på din server (hostname)" "homelab")
-    CF_TUNNEL_TOKEN=$(ask_string "Cloudflare Tunnel Token (tryck Enter för att hoppa över)" "")
+    
+    # Tunnel token med tydlig varning
+    echo "" > /dev/tty
+    echo -e "  ${CYAN}Cloudflare Tunnel Token ger säker extern åtkomst utan port forwarding.${NC}" > /dev/tty
+    echo -e "  ${CYAN}Utan token fungerar INTE extern åtkomst (ha.dindomän.se etc).${NC}" > /dev/tty
+    echo -e "  ${CYAN}Du kan lägga till den senare — se docs/04-cloudflare-tunnel.md${NC}" > /dev/tty
+    echo "" > /dev/tty
+    CF_TUNNEL_TOKEN=$(ask_string "Cloudflare Tunnel Token (Enter = hoppa över)" "")
+    if [ -z "$CF_TUNNEL_TOKEN" ]; then
+        msg_warn "Ingen tunnel-token angiven. Extern åtkomst konfigureras senare."
+        msg_info "Se: docs/04-cloudflare-tunnel.md och docs/10-cloudflare-api-setup.md"
+    fi
+    
     CT_PASSWORD=$(ask_string "Standardlösenord för nya containers" "MySecurePassword123!" "true")
     
     STORAGE_POOL=$(find_storage_pool)
@@ -240,9 +310,17 @@ fi
 if [ "$DO_CF" == "y" ] || [ "$DO_NPM" == "y" ] || [ "$DO_FRIGATE" == "y" ]; then
     if [ "$DRY_RUN" != "true" ]; then
         TEMPLATE_PATH=$(get_debian_template)
+        if [ -z "$TEMPLATE_PATH" ]; then
+            msg_err "Kunde inte hämta Debian LXC-template. Kontrollera internet och repos."
+            msg_info "Försök manuellt: pveam update && pveam download local debian-12-standard_12.7-1_amd64.tar.zst"
+            if ! ask_yes_no "Vill du fortsätta ändå (hoppar över container-skapning)?" "N"; then
+                exit 1
+            fi
+            DO_CF="n"; DO_NPM="n"; DO_FRIGATE="n"
+        fi
     else
         msg_dry "Skulle ladda ner Debian LXC-template"
-        TEMPLATE_PATH="/var/lib/vz/template/cache/debian-12-standard_12.x_amd64.tar.zst"
+        TEMPLATE_PATH="local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst"
     fi
 fi
 
@@ -254,13 +332,14 @@ if [ "$DO_HA" == "y" ]; then
     if [ "$DRY_RUN" == "true" ]; then
         msg_dry "Skulle skapa VM $IP_HA med HAOS"
     else
+        rollback_register "vm" "$IP_HA" "Home Assistant"
         if ! bash modules/02-ha-vm.sh; then
             msg_err "Ett fel uppstod under installationen av Home Assistant."
+            rollback_offer "$IP_HA" "Home Assistant"
             if ! ask_yes_no "Vill du fortsätta med nästa steg ändå?" "N"; then exit 1; fi
         else
+            rollback_clear  # Lyckades — inget att ångra
             msg_info "Väntar på att HA ska starta (tar en stund)..."
-            msg_info "Observera: HAOS använder DHCP by default. Om din router inte ger den IP .${IP_HA}"
-            msg_info "så kommer detta test att misslyckas, men HA fungerar ändå på den IP den fick."
             for i in {1..15}; do
                 if nc -z -w 2 "${NETWORK_PREFIX}.${IP_HA}" 8123 2>/dev/null; then
                     msg_ok "HA är uppe och svarar på ${NETWORK_PREFIX}.${IP_HA}:8123!"
@@ -280,23 +359,33 @@ if [ "$DO_CF" == "y" ]; then
     if [ "$DRY_RUN" == "true" ]; then
         msg_dry "Skulle skapa CT $IP_CLOUDFLARED med cloudflared"
     else
+        rollback_register "ct" "$IP_CLOUDFLARED" "Cloudflared"
         if ! bash modules/03-cloudflared.sh "$TEMPLATE_PATH"; then
             msg_err "Ett fel uppstod under installationen av Cloudflared."
+            rollback_offer "$IP_CLOUDFLARED" "Cloudflared"
             if ! ask_yes_no "Vill du fortsätta med nästa steg ändå?" "N"; then exit 1; fi
+        else
+            rollback_clear
         fi
     fi
 fi
 
 # 4.5 NPM
 if [ "$DO_NPM" == "y" ]; then
-    print_banner "Nginx Proxy Manager (CT $IP_NPM)" "Reverse proxy med snyggt GUI för att dirigera trafik till HA och Frigate internt."
+    print_banner "Nginx Proxy Manager (CT $IP_NPM)" \
+"Reverse proxy som dirigerar trafik internt (HTTP).
+Cloudflare Tunnel hanterar all extern TLS/HTTPS — NPM behöver INTE SSL-certifikat.
+Ingen 'Force SSL' ska aktiveras i NPM (orsakar redirect-loop)."
     if [ "$DRY_RUN" == "true" ]; then
         msg_dry "Skulle skapa CT $IP_NPM med NPM + Docker"
     else
+        rollback_register "ct" "$IP_NPM" "NPM"
         if ! bash modules/04-npm.sh "$TEMPLATE_PATH"; then
             msg_err "Ett fel uppstod under installationen av NPM."
+            rollback_offer "$IP_NPM" "NPM"
             if ! ask_yes_no "Vill du fortsätta med nästa steg ändå?" "N"; then exit 1; fi
         else
+            rollback_clear
             msg_info "Väntar på att NPM ska svara på port 81..."
             for i in {1..10}; do
                 if nc -z -w 2 "${NETWORK_PREFIX}.${IP_NPM}" 81 2>/dev/null; then
@@ -314,21 +403,38 @@ CURRENT_STEP=$((CURRENT_STEP + 1))
 show_progress $CURRENT_STEP $TOTAL_STEPS "Frigate NVR"
 if [ "$DO_FRIGATE" == "y" ]; then
     print_banner "Frigate NVR (CT $IP_FRIGATE)" "AI-videoövervakning med hårdvaruacceleration (iGPU passthrough) och Docker."
-    if [ "$DRY_RUN" == "true" ]; then
-        msg_dry "Skulle skapa CT $IP_FRIGATE med Frigate 0.18 + Docker + iGPU"
-    else
-        if ! bash modules/05-frigate.sh "$TEMPLATE_PATH"; then
-            msg_err "Ett fel uppstod under installationen av Frigate."
-            if ! ask_yes_no "Vill du fortsätta med nästa steg ändå?" "N"; then exit 1; fi
+    
+    # Kolla iGPU — varna om den saknas (reboot behövs)
+    if [ ! -e /dev/dri/renderD128 ]; then
+        msg_warn "iGPU (/dev/dri/renderD128) hittades INTE på hosten!"
+        msg_info "Frigate behöver iGPU för AI-detektering och VAAPI."
+        msg_info "Om du just konfigurerade BIOS krävs en omstart först."
+        if ! ask_yes_no "Vill du installera Frigate ändå (utan iGPU)?" "N"; then
+            msg_skip "Hoppar över Frigate. Starta om och kör wizarden igen."
+            DO_FRIGATE="n"
+        fi
+    fi
+    
+    if [ "$DO_FRIGATE" == "y" ]; then
+        if [ "$DRY_RUN" == "true" ]; then
+            msg_dry "Skulle skapa CT $IP_FRIGATE med Frigate 0.18 + Docker + iGPU"
         else
-            msg_info "Väntar på att Frigate ska svara på port 5000..."
-            for i in {1..10}; do
-                if nc -z -w 2 "${NETWORK_PREFIX}.${IP_FRIGATE}" 5000 2>/dev/null; then
-                    msg_ok "Frigate är uppe och svarar!"
-                    break
-                fi
-                sleep 3
-            done
+            rollback_register "ct" "$IP_FRIGATE" "Frigate"
+            if ! bash modules/05-frigate.sh "$TEMPLATE_PATH"; then
+                msg_err "Ett fel uppstod under installationen av Frigate."
+                rollback_offer "$IP_FRIGATE" "Frigate"
+                if ! ask_yes_no "Vill du fortsätta med nästa steg ändå?" "N"; then exit 1; fi
+            else
+                rollback_clear
+                msg_info "Väntar på att Frigate ska svara på port 5000..."
+                for i in {1..10}; do
+                    if nc -z -w 2 "${NETWORK_PREFIX}.${IP_FRIGATE}" 5000 2>/dev/null; then
+                        msg_ok "Frigate är uppe och svarar!"
+                        break
+                    fi
+                    sleep 3
+                done
+            fi
         fi
     fi
 fi
@@ -365,7 +471,10 @@ fi
 
 # 4.9 NPM Auto-Config
 if [ "$DO_NPM_CONF" == "y" ]; then
-    print_banner "NPM Auto-Config" "Sätter upp proxy-regler i NPM automatiskt."
+    print_banner "NPM Auto-Config" \
+"Sätter upp proxy-regler i NPM automatiskt.
+OBS: Alla proxy hosts använder HTTP internt (scheme: http).
+Cloudflare Tunnel hanterar TLS externt — NPM ska INTE ha Force SSL."
     if [ "$DRY_RUN" == "true" ]; then
         msg_dry "Skulle skapa proxy hosts i NPM via API"
     else
@@ -378,7 +487,42 @@ if [ "$DO_NPM_CONF" == "y" ]; then
 fi
 
 # ==========================================
-# 5. Summary
+# 5. Brandväggsverifiering
+# ==========================================
+if [ "$DRY_RUN" != "true" ]; then
+    msg_header "Brandväggsverifiering"
+    
+    # Kolla att Proxmox-brandväggen inte blockerar intern trafik
+    PVE_FW_ENABLED=$(cat /etc/pve/firewall/cluster.fw 2>/dev/null | grep -i "enable:" | awk '{print $2}')
+    if [ "$PVE_FW_ENABLED" == "1" ]; then
+        msg_warn "Proxmox-brandväggen är AKTIVERAD på klusternivå."
+        msg_info "Se till att följande portar är tillåtna mellan containers:"
+        msg_info "  • 8123 (HA), 5000/8554/8555 (Frigate), 80/81/443 (NPM)"
+        msg_info "  • 1883 (MQTT), 8971 (Frigate auth)"
+        msg_info "Alternativt: Inaktivera Proxmox-brandväggen (Unifi hanterar nätverkssäkerhet)."
+    else
+        msg_ok "Proxmox-brandvägg: Inaktiverad (bra — Unifi/router hanterar säkerhet)"
+    fi
+    
+    # Kolla iptables/nftables i hosten
+    if nft list ruleset 2>/dev/null | grep -q "drop\|reject" && ! nft list ruleset 2>/dev/null | grep -q "pve-fw"; then
+        msg_warn "nftables-regler hittades som kan blockera trafik. Kontrollera med: nft list ruleset"
+    fi
+    
+    # Kolla att containers inte har brandvägg aktiverad per-CT
+    for ct_id in $IP_CLOUDFLARED $IP_NPM $IP_FRIGATE; do
+        if [ -f "/etc/pve/firewall/${ct_id}.fw" ]; then
+            CT_FW=$(grep -i "enable:" "/etc/pve/firewall/${ct_id}.fw" 2>/dev/null | awk '{print $2}')
+            if [ "$CT_FW" == "1" ]; then
+                msg_warn "CT ${ct_id} har egen brandvägg aktiverad. Detta kan blockera trafik."
+                msg_info "  Inaktivera: Datacenter → CT ${ct_id} → Firewall → Options → Enable: No"
+            fi
+        fi
+    done
+fi
+
+# ==========================================
+# 6. Summary
 # ==========================================
 CURRENT_STEP=$TOTAL_STEPS
 show_progress $CURRENT_STEP $TOTAL_STEPS "Klart!"
@@ -428,15 +572,36 @@ fi
 
 echo ""
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${BOLD}Nästa steg:${NC}"
+echo -e "${BOLD}Nästa steg (VIKTIGT):${NC}"
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 
 STEP=1
+
+# MQTT-varning — alltid relevant om Frigate är installerat
+if check_id_exists $IP_FRIGATE 2>/dev/null; then
+    echo -e "  ${STEP}. ${YELLOW}${BOLD}MQTT (Frigate → Home Assistant):${NC}"
+    echo -e "     Frigate använder MQTT för att skicka händelser till HA."
+    echo -e "     MQTT-brokern (Mosquitto) körs som add-on i Home Assistant."
+    echo -e ""
+    echo -e "     ${BOLD}Gör detta i HA:${NC}"
+    echo -e "       a) Inställningar → Add-ons → Sök 'Mosquitto broker' → Installera"
+    echo -e "       b) Inställningar → Personer → Användare → Lägg till:"
+    echo -e "          Användarnamn: ${GREEN}mqtt-user${NC}"
+    echo -e "          Lösenord: (samma som du angav i Frigate-setupen)"
+    echo -e "       c) Starta Mosquitto add-on"
+    echo -e ""
+    echo -e "     ${DIM}Om MQTT inte konfigureras: Frigate fungerar lokalt men HA${NC}"
+    echo -e "     ${DIM}får inga notiser/händelser. Konfigurera när HA är klar.${NC}"
+    echo ""
+    STEP=$((STEP + 1))
+fi
+
 if [ -z "$CF_TUNNEL_TOKEN" ] && check_id_exists $IP_CLOUDFLARED 2>/dev/null; then
-    echo -e "  ${STEP}. ${RED}Cloudflare Token saknas.${NC} Följ docs/10-cloudflare-api-setup.md"
-    echo -e "     och kör sedan:"
-    echo -e "     ${YELLOW}pct exec $IP_CLOUDFLARED -- cloudflared service install <DIN_TOKEN>${NC}"
+    echo -e "  ${STEP}. ${RED}${BOLD}Cloudflare Tunnel Token saknas!${NC}"
+    echo -e "     Utan token fungerar INTE extern åtkomst (ha.dindomän.se)."
+    echo -e "     Följ: docs/10-cloudflare-api-setup.md"
+    echo -e "     Sedan: ${YELLOW}pct exec $IP_CLOUDFLARED -- cloudflared service install <DIN_TOKEN>${NC}"
     STEP=$((STEP + 1))
 fi
 
@@ -444,18 +609,21 @@ if check_id_exists $IP_NPM 2>/dev/null; then
     echo -e "  ${STEP}. ${BOLD}NPM Admin:${NC} Logga in på http://${NETWORK_PREFIX}.${IP_NPM}:81"
     echo -e "     Standardinloggning: admin@example.com / changeme"
     echo -e "     Byt lösenord direkt!"
+    echo -e "     ${YELLOW}OBS: Aktivera INTE 'Force SSL' — Cloudflare hanterar HTTPS externt.${NC}"
     STEP=$((STEP + 1))
 fi
 
 if check_id_exists $IP_HA 2>/dev/null; then
     echo -e "  ${STEP}. ${BOLD}Home Assistant:${NC} Gå till http://${NETWORK_PREFIX}.${IP_HA}:8123"
     echo -e "     Återställ din backup eller skapa nytt konto."
+    echo -e "     Installera Mosquitto add-on (se steg 1 ovan)."
     STEP=$((STEP + 1))
 fi
 
 if check_id_exists $IP_FRIGATE 2>/dev/null; then
     echo -e "  ${STEP}. ${BOLD}Frigate:${NC} Gå till http://${NETWORK_PREFIX}.${IP_FRIGATE}:5000"
     echo -e "     Rita zoner och masker i UI:t för varje kamera."
+    echo -e "     Verifiera att alla kameror syns och att AI-detektering fungerar."
     STEP=$((STEP + 1))
 fi
 

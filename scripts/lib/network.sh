@@ -6,8 +6,21 @@
 # Detektera nätverksinställningar automatiskt
 # Returnerar: DETECTED_GATEWAY, DETECTED_PREFIX, DETECTED_DNS, DETECTED_IP, DETECTED_NIC
 detect_network() {
-    # Hitta primärt nätverkskort (inte lo, inte vmbr)
+    # Hitta primärt nätverkskort
+    # På Proxmox går default route ofta via vmbr0 (brygga).
+    # Vi visar både bryggan och det fysiska NIC:et för tydlighet.
     DETECTED_NIC=$(ip route show default 2>/dev/null | awk '{print $5}' | head -1)
+    DETECTED_PHYSICAL_NIC=""
+    
+    if [[ "$DETECTED_NIC" == vmbr* ]]; then
+        # Hitta det fysiska NIC:et som är slavat till bryggan
+        DETECTED_PHYSICAL_NIC=$(ip -o link show master "$DETECTED_NIC" 2>/dev/null | awk -F': ' '{print $2}' | head -1)
+        if [ -z "$DETECTED_PHYSICAL_NIC" ]; then
+            # Alternativ: kolla bridge ports
+            DETECTED_PHYSICAL_NIC=$(bridge link show 2>/dev/null | grep "$DETECTED_NIC" | awk '{print $2}' | tr -d ':' | head -1)
+        fi
+    fi
+    
     if [ -z "$DETECTED_NIC" ]; then
         # Fallback: hitta första aktiva NIC
         DETECTED_NIC=$(ip -o link show up | grep -v "lo\|vmbr\|tap\|veth" | awk -F': ' '{print $2}' | head -1)
@@ -56,7 +69,13 @@ confirm_network() {
     printf "  ${CYAN}║${NC}   Prefix:      ${GREEN}%-42s${NC} ${CYAN}║${NC}\n" "$DETECTED_PREFIX" > /dev/tty
     printf "  ${CYAN}║${NC}   Din IP:      ${GREEN}%-42s${NC} ${CYAN}║${NC}\n" "$DETECTED_IP" > /dev/tty
     printf "  ${CYAN}║${NC}   DNS:         ${GREEN}%-42s${NC} ${CYAN}║${NC}\n" "$DETECTED_DNS" > /dev/tty
-    printf "  ${CYAN}║${NC}   NIC:         ${GREEN}%-42s${NC} ${CYAN}║${NC}\n" "$DETECTED_NIC" > /dev/tty
+    # Visa NIC med fysiskt interface om det är en brygga
+    if [ -n "$DETECTED_PHYSICAL_NIC" ]; then
+        NIC_DISPLAY="${DETECTED_NIC} (brygga → ${DETECTED_PHYSICAL_NIC})"
+    else
+        NIC_DISPLAY="$DETECTED_NIC"
+    fi
+    printf "  ${CYAN}\u2551${NC}   NIC:         ${GREEN}%-42s${NC} ${CYAN}\u2551${NC}\n" "$NIC_DISPLAY" > /dev/tty
     printf "  ${CYAN}║${NC}   Subnät:      ${GREEN}%-42s${NC} ${CYAN}║${NC}\n" "/${DETECTED_CIDR}" > /dev/tty
     echo -e "  ${CYAN}╚════════════════════════════════════════════════════════════╝${NC}\n" > /dev/tty
     

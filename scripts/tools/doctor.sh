@@ -14,10 +14,24 @@ if [ -f setup.env ]; then
     source setup.env
 fi
 
+# ============================================================
+# ROOT-CHECK
+# ============================================================
+if [ "$EUID" -ne 0 ]; then
+    echo -e "${RED}${BOLD}  Doctor måste köras som root (behöver access till pct/qm/docker).${NC}"
+    echo -e "  Kör: ${YELLOW}sudo bash tools/doctor.sh${NC}"
+    echo ""
+    echo -e "  Alternativt (begränsad info utan root):"
+    echo -e "  Fortsätter med begränsad diagnostik...\n"
+    NO_ROOT=true
+else
+    NO_ROOT=false
+fi
+
 clear
 echo -e "${BOLD}${BLUE}"
 echo "  ╔═══════════════════════════════════════════════╗"
-echo "  ║     OptiPlex Homelab — Doctor 🩺              ║"
+echo "  ║     OptiPlex Homelab — Doctor                 ║"
 echo "  ╠═══════════════════════════════════════════════╣"
 echo "  ║  Kontrollerar systemets hälsa...              ║"
 echo "  ╚═══════════════════════════════════════════════╝"
@@ -147,85 +161,95 @@ fi
 # ============================================================
 msg_header "Containers & VMs"
 
-# Funktion för att kolla status
-check_ct_vm() {
-    local id="$1"
-    local name="$2"
-    local type="$3"  # "ct" eller "vm"
-    
-    if [ "$type" == "vm" ]; then
-        if qm status $id 2>/dev/null | grep -q "running"; then
-            msg_ok "VM $id ($name): Körs"
-            return 0
-        elif qm status $id 2>/dev/null | grep -q "stopped"; then
-            msg_warn "VM $id ($name): Stoppad"
-            WARNINGS=$((WARNINGS + 1))
-            return 1
+if [ "$NO_ROOT" == "true" ]; then
+    msg_info "Hoppar över (kräver root)"
+else
+    # Funktion för att kolla status
+    check_ct_vm() {
+        local id="$1"
+        local name="$2"
+        local type="$3"  # "ct" eller "vm"
+        
+        if [ "$type" == "vm" ]; then
+            if qm status $id 2>/dev/null | grep -q "running"; then
+                msg_ok "VM $id ($name): Körs"
+                return 0
+            elif qm status $id 2>/dev/null | grep -q "stopped"; then
+                msg_warn "VM $id ($name): Stoppad"
+                WARNINGS=$((WARNINGS + 1))
+                return 1
+            else
+                msg_info "VM $id ($name): Finns inte"
+                return 2
+            fi
         else
-            msg_info "VM $id ($name): Finns inte"
-            return 2
+            if pct status $id 2>/dev/null | grep -q "running"; then
+                msg_ok "CT $id ($name): Körs"
+                return 0
+            elif pct status $id 2>/dev/null | grep -q "stopped"; then
+                msg_warn "CT $id ($name): Stoppad"
+                WARNINGS=$((WARNINGS + 1))
+                return 1
+            else
+                msg_info "CT $id ($name): Finns inte"
+                return 2
+            fi
         fi
-    else
-        if pct status $id 2>/dev/null | grep -q "running"; then
-            msg_ok "CT $id ($name): Körs"
-            return 0
-        elif pct status $id 2>/dev/null | grep -q "stopped"; then
-            msg_warn "CT $id ($name): Stoppad"
-            WARNINGS=$((WARNINGS + 1))
-            return 1
-        else
-            msg_info "CT $id ($name): Finns inte"
-            return 2
-        fi
-    fi
-}
+    }
 
-# Kolla alla tjänster
-HA_ID="${IP_HA:-100}"
-CF_ID="${IP_CLOUDFLARED:-101}"
-NPM_ID="${IP_NPM:-102}"
-FRIG_ID="${IP_FRIGATE:-103}"
+    # Kolla alla tjänster
+    HA_ID="${IP_HA:-100}"
+    CF_ID="${IP_CLOUDFLARED:-101}"
+    NPM_ID="${IP_NPM:-102}"
+    FRIG_ID="${IP_FRIGATE:-103}"
 
-check_ct_vm "$HA_ID" "Home Assistant" "vm"
-check_ct_vm "$CF_ID" "Cloudflared" "ct"
-check_ct_vm "$NPM_ID" "NPM" "ct"
-check_ct_vm "$FRIG_ID" "Frigate" "ct"
+    check_ct_vm "$HA_ID" "Home Assistant" "vm"
+    check_ct_vm "$CF_ID" "Cloudflared" "ct"
+    check_ct_vm "$NPM_ID" "NPM" "ct"
+    check_ct_vm "$FRIG_ID" "Frigate" "ct"
+fi
 
 # ============================================================
 # 4. DOCKER (i Frigate-container)
 # ============================================================
 msg_header "Docker-tjänster"
 
-if pct status $FRIG_ID 2>/dev/null | grep -q "running"; then
-    # Kolla Docker i Frigate
-    DOCKER_STATUS=$(pct exec $FRIG_ID -- docker ps --format "{{.Names}}: {{.Status}}" 2>/dev/null || echo "")
-    if [ -n "$DOCKER_STATUS" ]; then
-        while IFS= read -r line; do
-            if echo "$line" | grep -q "Up"; then
-                msg_ok "Docker: $line"
-            else
-                msg_warn "Docker: $line"
-                WARNINGS=$((WARNINGS + 1))
-            fi
-        done <<< "$DOCKER_STATUS"
-    else
-        msg_warn "Kunde inte kontakta Docker i Frigate-containern"
-        WARNINGS=$((WARNINGS + 1))
+if [ "$NO_ROOT" != "true" ]; then
+    FRIG_ID="${IP_FRIGATE:-103}"
+    NPM_ID="${IP_NPM:-102}"
+    
+    if pct status $FRIG_ID 2>/dev/null | grep -q "running"; then
+        DOCKER_STATUS=$(pct exec $FRIG_ID -- docker ps --format "{{.Names}}: {{.Status}}" 2>/dev/null || echo "")
+        if [ -n "$DOCKER_STATUS" ]; then
+            while IFS= read -r line; do
+                if echo "$line" | grep -q "Up"; then
+                    msg_ok "Docker (Frigate): $line"
+                else
+                    msg_warn "Docker (Frigate): $line"
+                    WARNINGS=$((WARNINGS + 1))
+                fi
+            done <<< "$DOCKER_STATUS"
+        else
+            msg_warn "Kunde inte kontakta Docker i Frigate-containern"
+            WARNINGS=$((WARNINGS + 1))
+        fi
     fi
-fi
 
-if pct status $NPM_ID 2>/dev/null | grep -q "running"; then
-    DOCKER_STATUS=$(pct exec $NPM_ID -- docker ps --format "{{.Names}}: {{.Status}}" 2>/dev/null || echo "")
-    if [ -n "$DOCKER_STATUS" ]; then
-        while IFS= read -r line; do
-            if echo "$line" | grep -q "Up"; then
-                msg_ok "Docker (NPM): $line"
-            else
-                msg_warn "Docker (NPM): $line"
-                WARNINGS=$((WARNINGS + 1))
-            fi
-        done <<< "$DOCKER_STATUS"
+    if pct status $NPM_ID 2>/dev/null | grep -q "running"; then
+        DOCKER_STATUS=$(pct exec $NPM_ID -- docker ps --format "{{.Names}}: {{.Status}}" 2>/dev/null || echo "")
+        if [ -n "$DOCKER_STATUS" ]; then
+            while IFS= read -r line; do
+                if echo "$line" | grep -q "Up"; then
+                    msg_ok "Docker (NPM): $line"
+                else
+                    msg_warn "Docker (NPM): $line"
+                    WARNINGS=$((WARNINGS + 1))
+                fi
+            done <<< "$DOCKER_STATUS"
+        fi
     fi
+else
+    msg_info "Hoppar över (kräver root)"
 fi
 
 # ============================================================
@@ -250,13 +274,16 @@ else
 fi
 
 # Cloudflare Tunnel
-if pct status $CF_ID 2>/dev/null | grep -q "running"; then
-    TUNNEL_STATUS=$(pct exec $CF_ID -- cloudflared tunnel info 2>/dev/null | head -5 || echo "")
-    if pct exec $CF_ID -- pgrep -f cloudflared > /dev/null 2>&1; then
-        msg_ok "Cloudflare Tunnel: Processen körs"
-    else
-        msg_warn "Cloudflare Tunnel: Processen körs INTE"
-        WARNINGS=$((WARNINGS + 1))
+if [ "$NO_ROOT" != "true" ]; then
+    CF_ID="${IP_CLOUDFLARED:-101}"
+    if pct status $CF_ID 2>/dev/null | grep -q "running"; then
+        if pct exec $CF_ID -- pgrep -f cloudflared > /dev/null 2>&1; then
+            msg_ok "Cloudflare Tunnel: Processen körs"
+        else
+            msg_warn "Cloudflare Tunnel: Processen körs INTE"
+            msg_info "  Kontrollera: pct exec $CF_ID -- systemctl status cloudflared"
+            WARNINGS=$((WARNINGS + 1))
+        fi
     fi
 fi
 
@@ -274,12 +301,118 @@ check_port() {
 }
 
 NW="${NETWORK_PREFIX:-192.168.1}"
+HA_ID="${IP_HA:-100}"
+FRIG_ID="${IP_FRIGATE:-103}"
+NPM_ID="${IP_NPM:-102}"
+
 check_port "${NW}.${HA_ID}" 8123 "Home Assistant"
 check_port "${NW}.${FRIG_ID}" 5000 "Frigate"
 check_port "${NW}.${NPM_ID}" 81 "NPM Admin"
 
 # ============================================================
-# 6. SAMMANFATTNING
+# 6. MQTT
+# ============================================================
+msg_header "MQTT (Frigate → Home Assistant)"
+
+MQTT_HOST="${NW}.${HA_ID}"
+if nc -z -w 2 "$MQTT_HOST" 1883 2>/dev/null; then
+    msg_ok "MQTT-broker: Svarar på ${MQTT_HOST}:1883"
+else
+    msg_warn "MQTT-broker: Svarar INTE på ${MQTT_HOST}:1883"
+    msg_info "  Frigate kan inte skicka händelser till Home Assistant."
+    msg_info "  Åtgärd: Installera Mosquitto add-on i HA:"
+    msg_info "    HA → Inställningar → Add-ons → Mosquitto broker → Installera"
+    msg_info "    Skapa användare 'mqtt-user' i HA → Inställningar → Personer → Användare"
+    WARNINGS=$((WARNINGS + 1))
+fi
+
+# ============================================================
+# 7. BRANDVÄGG
+# ============================================================
+msg_header "Brandvägg"
+
+# Proxmox-brandvägg
+PVE_FW_ENABLED=$(cat /etc/pve/firewall/cluster.fw 2>/dev/null | grep -i "^enable:" | awk '{print $2}')
+if [ "$PVE_FW_ENABLED" == "1" ]; then
+    msg_warn "Proxmox-brandvägg: AKTIVERAD på klusternivå"
+    msg_info "  Se till att intern trafik (8123, 5000, 80, 81, 443, 1883) är tillåten."
+    msg_info "  Alternativt: Inaktivera (Datacenter → Firewall → Options → Enable: No)"
+    WARNINGS=$((WARNINGS + 1))
+else
+    msg_ok "Proxmox-brandvägg: Inaktiverad (Unifi/router hanterar säkerhet)"
+fi
+
+# Per-container brandvägg
+if [ "$NO_ROOT" != "true" ]; then
+    for ct_id in ${IP_CLOUDFLARED:-101} ${IP_NPM:-102} ${IP_FRIGATE:-103}; do
+        if [ -f "/etc/pve/firewall/${ct_id}.fw" ]; then
+            CT_FW=$(grep -i "^enable:" "/etc/pve/firewall/${ct_id}.fw" 2>/dev/null | awk '{print $2}')
+            if [ "$CT_FW" == "1" ]; then
+                msg_warn "CT ${ct_id}: Egen brandvägg aktiverad (kan blockera trafik)"
+                WARNINGS=$((WARNINGS + 1))
+            fi
+        fi
+    done
+fi
+
+# nftables-regler
+if command -v nft &>/dev/null; then
+    DROP_RULES=$(nft list ruleset 2>/dev/null | grep -c -E "drop|reject" || echo "0")
+    if [ "$DROP_RULES" -gt 0 ]; then
+        # Kolla om det är Proxmox-egna regler (pve-fw)
+        if nft list ruleset 2>/dev/null | grep -q "pve-fw"; then
+            msg_ok "nftables: Proxmox-hanterade regler (normalt)"
+        else
+            msg_warn "nftables: ${DROP_RULES} drop/reject-regler hittades"
+            msg_info "  Kontrollera: nft list ruleset | grep -E 'drop|reject'"
+            WARNINGS=$((WARNINGS + 1))
+        fi
+    else
+        msg_ok "nftables: Inga blockerande regler"
+    fi
+fi
+
+# ============================================================
+# 8. NPM SSL-KONFIGURATION
+# ============================================================
+msg_header "NPM SSL-konfiguration"
+
+if [ "$NO_ROOT" != "true" ]; then
+    NPM_ID="${IP_NPM:-102}"
+    if pct status $NPM_ID 2>/dev/null | grep -q "running"; then
+        # Kolla om NPM har Force SSL aktiverat (via API)
+        NPM_IP="${NW}.${NPM_ID}"
+        # Försök hämta proxy hosts
+        TOKEN_RES=$(curl -s --max-time 5 -X POST "http://${NPM_IP}:81/api/tokens" \
+            -H "Content-Type: application/json" \
+            -d '{"identity": "admin@example.com", "secret": "changeme"}' 2>/dev/null)
+        TOKEN=$(echo "$TOKEN_RES" | grep -o '"token":"[^"]*' 2>/dev/null | cut -d'"' -f4)
+        
+        if [ -n "$TOKEN" ]; then
+            # Hämta proxy hosts och kolla SSL
+            HOSTS=$(curl -s --max-time 5 "http://${NPM_IP}:81/api/nginx/proxy-hosts" \
+                -H "Authorization: Bearer $TOKEN" 2>/dev/null)
+            
+            FORCE_SSL_COUNT=$(echo "$HOSTS" | grep -o '"ssl_forced":1' | wc -l 2>/dev/null || echo "0")
+            if [ "$FORCE_SSL_COUNT" -gt 0 ]; then
+                msg_warn "NPM: ${FORCE_SSL_COUNT} proxy host(s) har 'Force SSL' aktiverat!"
+                msg_info "  Detta orsakar redirect-loop med Cloudflare Tunnel."
+                msg_info "  Åtgärd: NPM Admin → Proxy Hosts → Edit → SSL → Avmarkera 'Force SSL'"
+                WARNINGS=$((WARNINGS + 1))
+            else
+                msg_ok "NPM: Ingen 'Force SSL' aktiv (korrekt med Cloudflare Tunnel)"
+            fi
+        else
+            msg_info "NPM: Kunde inte logga in med default-credentials (lösenord redan bytt)"
+            msg_info "  Kontrollera manuellt att 'Force SSL' INTE är aktiverat i NPM."
+        fi
+    fi
+else
+    msg_info "Hoppar över (kräver root)"
+fi
+
+# ============================================================
+# 9. SAMMANFATTNING
 # ============================================================
 echo ""
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"

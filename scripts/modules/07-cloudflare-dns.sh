@@ -232,8 +232,9 @@ echo -e "     frigate.${DOMAIN:-dindomän.se}  -> ${NETWORK_PREFIX}.${IP_NPM}"
 echo -e ""
 
 echo -e "${GREEN}Varför NPM och inte direkt till tjänsten?${NC}"
-echo -e "  NPM hanterar SSL-certifikat och routing. Genom att peka allt till NPM"
-echo -e "  fungerar samma URL (ha.domän.se) identiskt oavsett om du är hemma eller borta."
-echo -e "  NPM dirigerar sedan vidare till rätt tjänst (HA:8123, Frigate:5000).\n"
+echo -e "  NPM hanterar intern routing (HTTP). Cloudflare Tunnel hanterar extern TLS/HTTPS."
+echo -e "  Genom att peka allt till NPM fungerar samma URL (ha.domän.se) identiskt"
+echo -e "  oavsett om du är hemma eller borta. NPM dirigerar vidare till rätt tjänst."
+echo -e "  ${YELLOW}OBS: Aktivera INTE 'Force SSL' i NPM — det orsakar redirect-loop!${NC}\n"
 
 ask_string "Tryck Enter för att fortsätta..." ""

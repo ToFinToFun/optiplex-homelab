@@ -29,7 +29,13 @@ if [ -n "$CF_TUNNEL_TOKEN" ]; then
     pct exec $IP_CLOUDFLARED -- bash -c "cloudflared service install $CF_TUNNEL_TOKEN" > /dev/null
     msg_ok "Cloudflare Tunnel installerad och startad!"
 else
-    msg_warn "Ingen CF_TUNNEL_TOKEN angiven."
+    echo ""
+    msg_warn "Ingen Cloudflare Tunnel Token angiven!"
+    msg_info "Utan token fungerar INTE extern åtkomst (ha.dindomän.se etc)."
+    msg_info ""
     msg_info "Containern är redo. När du har din token, kör:"
-    msg_info "pct exec $IP_CLOUDFLARED -- cloudflared service install <DIN_TOKEN>"
+    msg_info "  pct exec $IP_CLOUDFLARED -- cloudflared service install <DIN_TOKEN>"
+    msg_info ""
+    msg_info "Skapa en token: Cloudflare Dashboard → Zero Trust → Networks → Tunnels"
+    msg_info "Se: docs/04-cloudflare-tunnel.md och docs/10-cloudflare-api-setup.md"
 fi

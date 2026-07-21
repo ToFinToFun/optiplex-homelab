@@ -8,6 +8,9 @@ msg_header "Nginx Proxy Manager Auto-Config"
 echo -e "${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${CYAN}║${NC} Denna modul konfigurerar automatiskt NPM att dirigera trafik   ${CYAN}║${NC}"
 echo -e "${CYAN}║${NC} till Home Assistant och Frigate.                               ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}                                                                ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC} ${YELLOW}Cloudflare Tunnel hanterar TLS/HTTPS externt.${NC}                 ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC} ${YELLOW}NPM ska INTE ha Force SSL eller egna certifikat.${NC}              ${CYAN}║${NC}"
 echo -e "${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}\n"
 
 if ! pct status $IP_NPM &>/dev/null; then
@@ -70,7 +73,8 @@ create_proxy_host() {
             \"allow_websocket_upgrade\": ${websockets},
             \"http2_support\": true,
             \"hsts_enabled\": false,
-            \"hsts_subdomains\": false
+            \"hsts_subdomains\": false,
+            \"ssl_forced\": false
         }" > /dev/null
         
     msg_ok "Skapade ${sub}.${DOMAIN}"
