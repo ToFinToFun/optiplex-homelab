@@ -39,6 +39,7 @@ Följ guiderna i `docs/` i nummerordning. Om du har tillgång till Manus, börja
 | 07 | [Axis-kameror](docs/07-axis-kameror.md) | Dual stream-konfiguration |
 | 08 | [Home Assistant](docs/08-home-assistant.md) | VM + migrering + MQTT |
 | 09 | [Extern livevy](docs/09-extern-livevy.md) | MSE via tunnel (+ TURN som tillval) |
+| 10 | [Cloudflare API Setup](docs/10-cloudflare-api-setup.md) | Konto, Loopia-flytt, Tunnel & API-nyckel |
 
 ### Referensmaterial
 
