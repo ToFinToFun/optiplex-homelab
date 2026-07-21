@@ -22,13 +22,39 @@ NC='\033[0m'
 echo -e "${CYAN}"
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║                                                              ║"
-echo "║       OptiPlex Homelab — Bootstrap & Installer               ║"
-echo "║                                                              ║"
-echo "║  Detta skript förbereder din Proxmox-nod med nödvändiga      ║"
-echo "║  verktyg och startar sedan installationswizarden.            ║"
+echo "║       OptiPlex Homelab — Installationsguide                   ║"
 echo "║                                                              ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
+echo -e "  Välkommen! Detta skript hjälper dig att sätta upp ett"
+echo -e "  komplett homelab på din Proxmox-server."
+echo ""
+echo -e "  ${BOLD}Vad gör det?${NC}"
+echo -e "  ────────────"
+echo -e "  1. Installerar nödvändiga verktyg (git, nmap, vainfo m.fl.)"
+echo -e "  2. Klonar installationsrepot till /opt/optiplex-homelab"
+echo -e "  3. Startar en interaktiv wizard där du väljer vad du vill"
+echo -e "     installera (Home Assistant, Frigate, Cloudflare, etc.)"
+echo ""
+echo -e "  ${BOLD}Bra att veta:${NC}"
+echo -e "  ──────────────"
+echo -e "  • Inget installeras utan att du bekräftar varje steg"
+echo -e "  • Kan köras om hur många gånger som helst (säkert)"
+echo -e "  • Befintliga VMs/containers rörs inte utan fråga"
+echo -e "  • Avbryt när som helst med Ctrl+C"
+echo ""
+echo -e "${CYAN}──────────────────────────────────────────────────────────────${NC}"
+echo ""
+echo -ne "${BOLD}Vill du fortsätta? [J/n]: ${NC}"
+read CONTINUE < /dev/tty
+if [[ "$CONTINUE" =~ ^[nN]$ ]]; then
+    echo ""
+    echo -e "  ${CYAN}[OK]${NC} Avbrutet. Inget har ändrats."
+    echo -e "  Kör samma kommando igen när du är redo."
+    echo ""
+    exit 0
+fi
+echo ""
 
 # ============================================================
 # Steg 1: Kontrollera att vi kör som root på Proxmox
