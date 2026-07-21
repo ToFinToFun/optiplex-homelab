@@ -75,7 +75,7 @@ confirm_network() {
     else
         NIC_DISPLAY="$DETECTED_NIC"
     fi
-    printf "  ${CYAN}\u2551${NC}   NIC:         ${GREEN}%-42s${NC} ${CYAN}\u2551${NC}\n" "$NIC_DISPLAY" > /dev/tty
+    printf "  ${CYAN}║${NC}   NIC:         ${GREEN}%-42s${NC} ${CYAN}║${NC}\n" "$NIC_DISPLAY" > /dev/tty
     printf "  ${CYAN}║${NC}   Subnät:      ${GREEN}%-42s${NC} ${CYAN}║${NC}\n" "/${DETECTED_CIDR}" > /dev/tty
     echo -e "  ${CYAN}╚════════════════════════════════════════════════════════════╝${NC}\n" > /dev/tty
     
