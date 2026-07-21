@@ -52,8 +52,9 @@ ask_yes_no() {
         prompt="$prompt [y/N]: "
     fi
     
-    echo -ne "${BOLD}${prompt}${NC}"
-    read answer
+    # Skriv prompt direkt till terminalen (inte via tee/pipe)
+    echo -ne "${BOLD}${prompt}${NC}" > /dev/tty
+    read answer < /dev/tty
     
     if [ -z "$answer" ]; then
         answer="$default"
@@ -78,13 +79,14 @@ ask_string() {
         prompt="$prompt: "
     fi
     
-    echo -ne "${BOLD}${prompt}${NC}"
+    # Skriv prompt direkt till terminalen (inte via tee/pipe)
+    echo -ne "${BOLD}${prompt}${NC}" > /dev/tty
     
     if [ "$is_secret" = "true" ]; then
-        read -s answer
-        echo ""
+        read -s answer < /dev/tty
+        echo "" > /dev/tty
     else
-        read answer
+        read answer < /dev/tty
     fi
     
     if [ -z "$answer" ]; then
