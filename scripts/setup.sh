@@ -43,6 +43,7 @@ if load_config; then
 else
     msg_info "Ingen setup.env hittades. Låt oss ställa in grunderna."
     
+    NODE_HOSTNAME=$(ask_string "Namn på din server (hostname)" "homelab")
     NETWORK_PREFIX=$(ask_string "Nätverksprefix (t.ex. 192.168.1)" "192.168.1")
     GATEWAY=$(ask_string "Gateway IP" "${NETWORK_PREFIX}.1")
     CF_TUNNEL_TOKEN=$(ask_string "Cloudflare Tunnel Token (tryck Enter för att hoppa över)" "")
@@ -285,21 +286,87 @@ fi
 clear
 msg_header "Installation Slutförd!"
 
-echo -e "${CYAN}┌─────────────┬──────────────────────────┬──────────────────────────┐${NC}"
-echo -e "${CYAN}│${NC} ${BOLD}Tjänst${NC}      ${CYAN}│${NC} ${BOLD}Lokal IP / URL${NC}           ${CYAN}│${NC} ${BOLD}Status${NC}                   ${CYAN}│${NC}"
-echo -e "${CYAN}├─────────────┼──────────────────────────┼──────────────────────────┤${NC}"
-echo -e "${CYAN}│${NC} HAOS        ${CYAN}│${NC} http://${NETWORK_PREFIX}.${IP_HA}:8123   ${CYAN}│${NC} $(check_id_exists $IP_HA && echo -e "${GREEN}Installerad${NC}        " || echo -e "${YELLOW}Hoppades över${NC}      ") ${CYAN}│${NC}"
-echo -e "${CYAN}│${NC} NPM Admin   ${CYAN}│${NC} http://${NETWORK_PREFIX}.${IP_NPM}:81      ${CYAN}│${NC} $(check_id_exists $IP_NPM && echo -e "${GREEN}Installerad${NC}        " || echo -e "${YELLOW}Hoppades över${NC}      ") ${CYAN}│${NC}"
-echo -e "${CYAN}│${NC} Frigate     ${CYAN}│${NC} http://${NETWORK_PREFIX}.${IP_FRIGATE}:5000  ${CYAN}│${NC} $(check_id_exists $IP_FRIGATE && echo -e "${GREEN}Installerad${NC}        " || echo -e "${YELLOW}Hoppades över${NC}      ") ${CYAN}│${NC}"
-echo -e "${CYAN}└─────────────┴──────────────────────────┴──────────────────────────┘${NC}"
+echo -e "${BOLD}Server:${NC} ${NODE_HOSTNAME:-$(hostname)} ($(hostname -I | awk '{print $1}'))"
+echo ""
 
-echo -e "\n${BOLD}Nästa steg:${NC}"
-if [ -z "$CF_TUNNEL_TOKEN" ] && check_id_exists $IP_CLOUDFLARED; then
-    echo -e "1. ${RED}Viktigt:${NC} Du angav ingen Cloudflare Token. Logga in på Cloudflare,"
-    echo -e "   skapa en tunnel, och kör sedan detta i Proxmox-shell:"
-    echo -e "   ${YELLOW}pct exec $IP_CLOUDFLARED -- cloudflared service install <DIN_TOKEN>${NC}"
+echo -e "${CYAN}┌─────────────┬──────────────────────────────────┬──────────────────┐${NC}"
+echo -e "${CYAN}│${NC} ${BOLD}Tjänst${NC}      ${CYAN}│${NC} ${BOLD}Lokal URL${NC}                         ${CYAN}│${NC} ${BOLD}Status${NC}           ${CYAN}│${NC}"
+echo -e "${CYAN}├─────────────┼──────────────────────────────────┼──────────────────┤${NC}"
+printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "Proxmox" "https://$(hostname -I | awk '{print $1}'):8006" "Denna maskin"
+printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "HAOS" "http://${NETWORK_PREFIX}.${IP_HA}:8123" "$(check_id_exists $IP_HA && echo 'Installerad' || echo 'Hoppades över')"
+printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "NPM Admin" "http://${NETWORK_PREFIX}.${IP_NPM}:81" "$(check_id_exists $IP_NPM && echo 'Installerad' || echo 'Hoppades över')"
+printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "Frigate" "http://${NETWORK_PREFIX}.${IP_FRIGATE}:5000" "$(check_id_exists $IP_FRIGATE && echo 'Installerad' || echo 'Hoppades över')"
+printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "Cloudflared" "(ingen UI — tunnel)" "$(check_id_exists $IP_CLOUDFLARED && echo 'Installerad' || echo 'Hoppades över')"
+echo -e "${CYAN}└─────────────┴──────────────────────────────────┴──────────────────┘${NC}"
+
+# Wake-on-LAN info
+MAC_ADDRESS=$(get_state mac_address)
+PRIMARY_NIC=$(get_state primary_nic)
+if [ -n "$MAC_ADDRESS" ]; then
+    echo ""
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BOLD}Fjärrstart (Wake-on-LAN)${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "  Din servers MAC-adress: ${GREEN}${MAC_ADDRESS}${NC}"
+    echo -e "  Nätverkskort: ${PRIMARY_NIC}"
+    echo ""
+    echo -e "  ${BOLD}Starta servern från en annan dator i samma nätverk:${NC}"
+    echo ""
+    echo -e "    Linux/Mac:  ${YELLOW}wakeonlan ${MAC_ADDRESS}${NC}"
+    echo -e "    Windows:    ${YELLOW}wolcmd ${MAC_ADDRESS//:/} $(hostname -I | awk '{print $1}') 255.255.255.0${NC}"
+    echo -e "    Telefon:    Sök efter 'Wake on LAN' i App Store/Play Store"
+    echo ""
+    echo -e "  ${BOLD}Förutsättningar (bör redan vara OK):${NC}"
+    echo -e "    ✓ BIOS: Wake on LAN = Enabled"
+    echo -e "    ✓ BIOS: Deep Sleep Control = Disabled"
+    echo -e "    ✓ BIOS: AC Recovery = Power On (startar efter strömavbrott)"
+    echo -e "    ✓ OS: WoL aktiverat på ${PRIMARY_NIC} (gjordes i steg 1)"
 fi
-echo -e "2. Gå till NPM Admin (Lösenord: admin@example.com / changeme) och sätt upp dina domäner."
-echo -e "3. Återställ din Home Assistant backup."
-echo -e "\n${BLUE}Tack för att du använder OptiPlex Homelab Automation!${NC}"
-echo -e "${YELLOW}Logg sparad i /var/log/optiplex-setup.log${NC}\n"
+
+echo ""
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BOLD}Nästa steg:${NC}"
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+
+STEP=1
+if [ -z "$CF_TUNNEL_TOKEN" ] && check_id_exists $IP_CLOUDFLARED; then
+    echo -e "  ${STEP}. ${RED}Cloudflare Token saknas.${NC} Följ docs/10-cloudflare-api-setup.md"
+    echo -e "     och kör sedan:"
+    echo -e "     ${YELLOW}pct exec $IP_CLOUDFLARED -- cloudflared service install <DIN_TOKEN>${NC}"
+    STEP=$((STEP + 1))
+fi
+
+if check_id_exists $IP_NPM; then
+    echo -e "  ${STEP}. ${BOLD}NPM Admin:${NC} Logga in på http://${NETWORK_PREFIX}.${IP_NPM}:81"
+    echo -e "     Standardinloggning: admin@example.com / changeme"
+    echo -e "     Byt lösenord direkt!"
+    STEP=$((STEP + 1))
+fi
+
+if check_id_exists $IP_HA; then
+    echo -e "  ${STEP}. ${BOLD}Home Assistant:${NC} Gå till http://${NETWORK_PREFIX}.${IP_HA}:8123"
+    echo -e "     Återställ din backup eller skapa nytt konto."
+    STEP=$((STEP + 1))
+fi
+
+if check_id_exists $IP_FRIGATE; then
+    echo -e "  ${STEP}. ${BOLD}Frigate:${NC} Gå till http://${NETWORK_PREFIX}.${IP_FRIGATE}:5000"
+    echo -e "     Konfigurera kameror om du inte redan gjort det."
+    STEP=$((STEP + 1))
+fi
+
+echo ""
+echo -e "  ${BOLD}Användbara kommandon:${NC}"
+echo -e "    Systemstatus:  ${YELLOW}cd /opt/optiplex-homelab/scripts && bash tools/status.sh${NC}"
+echo -e "    Uppdatera:     ${YELLOW}cd /opt/optiplex-homelab/scripts && bash tools/update.sh${NC}"
+echo -e "    USB-backup:    ${YELLOW}cd /opt/optiplex-homelab/scripts && bash tools/usb-backup.sh${NC}"
+echo -e "    Kör om wizard:  ${YELLOW}cd /opt/optiplex-homelab/scripts && bash setup.sh${NC}"
+
+echo ""
+echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${GREEN}  Tack för att du använder OptiPlex Homelab Automation!${NC}"
+echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${YELLOW}  Logg sparad: /var/log/optiplex-setup.log${NC}"
+echo ""

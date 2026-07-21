@@ -16,6 +16,7 @@ load_config() {
 save_config() {
     cat > "$ENV_FILE" << EOF
 # OptiPlex Homelab - Automation Config
+NODE_HOSTNAME="${NODE_HOSTNAME:-homelab}"
 NETWORK_PREFIX="${NETWORK_PREFIX}"
 GATEWAY="${GATEWAY}"
 IP_HA="${IP_HA:-100}"
