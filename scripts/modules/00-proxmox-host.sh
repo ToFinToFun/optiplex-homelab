@@ -31,6 +31,181 @@ fi
 msg_info "Uppdaterar paketlistor..."
 apt-get update -qq 2>&1 | grep -v "^$" || true
 
+# ============================================================
+# BIOS AUTO-KONFIGURATION (Dell Command Configure)
+# ============================================================
+echo "" > /dev/tty
+print_banner "BIOS-optimering (Dell Command Configure)" \
+"Dell OptiPlex XE4 kan konfigureras direkt från Linux
+utan att du behöver gå in i BIOS manuellt.
+
+Detta ställer in ALLA inställningar optimalt:
+  • Virtualisering (VT-x, VT-d) för VMs
+  • iGPU Multi-Display för Frigate AI
+  • Wake-on-LAN för fjärrstart
+  • AC Recovery: Always On (startar efter strömavbrott)
+  • Deep Sleep: Av (nätverkskortet alltid redo)
+  • Secure Boot: Av (krävs för Proxmox)
+  • Headless-drift (inga boot-stopp utan skärm)
+  • DMA Protection: Av (krävs för GPU passthrough)"
+
+if ask_yes_no "Vill du optimera BIOS-inställningarna automatiskt?" "N"; then
+
+    msg_info "Installerar Dell Command Configure..."
+    
+    # Kolla om cctk redan finns
+    if command -v /opt/dell/dcc/cctk &>/dev/null; then
+        msg_ok "Dell Command Configure redan installerat"
+        CCTK="/opt/dell/dcc/cctk"
+    else
+        # Ladda ner och installera DCC
+        DCC_URL="https://dl.dell.com/FOLDER12591988M/1/command-configure_4.13.0-7.ubuntu22_amd64.deb"
+        DCC_DEB="/tmp/dell-command-configure.deb"
+        
+        msg_info "Laddar ner Dell Command Configure..."
+        if wget -q -O "$DCC_DEB" "$DCC_URL" 2>/dev/null; then
+            # Installera beroenden
+            apt-get install -y libssl3 > /dev/null 2>&1 || true
+            
+            if dpkg -i "$DCC_DEB" > /dev/null 2>&1; then
+                apt-get install -f -y > /dev/null 2>&1 || true
+                msg_ok "Dell Command Configure installerat"
+            else
+                # Försök fixa beroenden
+                apt-get install -f -y > /dev/null 2>&1
+                if dpkg -i "$DCC_DEB" > /dev/null 2>&1; then
+                    msg_ok "Dell Command Configure installerat (med fixade beroenden)"
+                else
+                    msg_err "Kunde inte installera Dell Command Configure."
+                    msg_info "Du kan ställa in BIOS manuellt — se docs/01-bios-setup.md"
+                    CCTK=""
+                fi
+            fi
+            rm -f "$DCC_DEB"
+        else
+            msg_err "Kunde inte ladda ner Dell Command Configure."
+            msg_info "Kontrollera internetanslutningen eller ställ in BIOS manuellt."
+            msg_info "Se docs/01-bios-setup.md för steg-för-steg-guide."
+            CCTK=""
+        fi
+        
+        # Hitta cctk
+        if [ -z "$CCTK" ]; then
+            for path in /opt/dell/dcc/cctk /opt/dell/toolkit/bin/cctk; do
+                if [ -x "$path" ]; then
+                    CCTK="$path"
+                    break
+                fi
+            done
+        fi
+    fi
+    
+    if [ -n "$CCTK" ] && [ -x "$CCTK" ]; then
+        msg_info "Konfigurerar BIOS (detta tar några sekunder)..."
+        echo ""
+        
+        BIOS_ERRORS=0
+        
+        # Funktion för att sätta BIOS-inställning med feedback
+        set_bios() {
+            local setting="$1"
+            local desc="$2"
+            local result
+            
+            result=$($CCTK $setting 2>&1)
+            if echo "$result" | grep -qi "success\|already\|read only"; then
+                msg_ok "$desc"
+            elif echo "$result" | grep -qi "not found\|unsupported\|invalid"; then
+                msg_warn "$desc — inställningen stöds inte på denna modell (hoppar över)"
+            else
+                msg_err "$desc — misslyckades: $result"
+                BIOS_ERRORS=$((BIOS_ERRORS + 1))
+            fi
+        }
+        
+        echo -e "  ${BOLD}── Storage ──${NC}"
+        set_bios "--sataoperation=ahci" "SATA Operation → AHCI"
+        
+        echo -e "\n  ${BOLD}── Display ──${NC}"
+        set_bios "--multidisplay=enable" "Multi-Display → Enabled"
+        set_bios "--primarydisplay=auto" "Primary Display → Auto"
+        set_bios "--fullscreenlogo=disable" "Full Screen Logo → Disabled"
+        
+        echo -e "\n  ${BOLD}── Nätverk ──${NC}"
+        set_bios "--embnic1=enabledwpxe" "Integrated NIC → Enabled with PXE"
+        set_bios "--uefinwstack=enable" "UEFI Network Stack → Enabled"
+        
+        echo -e "\n  ${BOLD}── Power Management ──${NC}"
+        set_bios "--acpwrrecovery=on" "AC Recovery → Always On"
+        set_bios "--blocksleep=enable" "Block Sleep → Enabled"
+        set_bios "--deepsleepctrl=disable" "Deep Sleep Control → Disabled"
+        set_bios "--wakeonlan=lanwlan" "Wake on LAN → LAN+WLAN"
+        set_bios "--usbwake=enable" "USB Wake Support → Enabled"
+        set_bios "--usbpowershare=disable" "USB PowerShare → Disabled"
+        set_bios "--aspm=disable" "ASPM → Disabled"
+        set_bios "--speedshift=enable" "Intel Speed Shift → Enabled"
+        
+        echo -e "\n  ${BOLD}── CPU & Prestanda ──${NC}"
+        set_bios "--speedstep=enable" "Intel SpeedStep → Enabled"
+        set_bios "--cstatesctrl=enable" "C-State Control → Enabled"
+        set_bios "--turbomode=enable" "Turbo Mode → Enabled"
+        set_bios "--logicproc=enable" "Hyper-Threading → Enabled"
+        set_bios "--corecnt=all" "Active Cores → All"
+        
+        echo -e "\n  ${BOLD}── Virtualisering & PCIe ──${NC}"
+        set_bios "--virtualization=enable" "Intel VT-x → Enabled"
+        set_bios "--vtfordirectio=enable" "VT-d (IOMMU) → Enabled"
+        set_bios "--trustexecution=disable" "Intel TXT → Disabled"
+        set_bios "--resizablebarstate=enable" "PCIe Resizable BAR → Enabled"
+        set_bios "--mmioabove4gb=enable" "MMIO Above 4GB → Enabled"
+        
+        echo -e "\n  ${BOLD}── DMA-skydd (av för passthrough) ──${NC}"
+        set_bios "--prebootdma=disable" "Pre-Boot DMA Support → Disabled"
+        set_bios "--kerneldma=disable" "Kernel DMA Protection → Disabled"
+        
+        echo -e "\n  ${BOLD}── Säkerhet ──${NC}"
+        set_bios "--secureboot=disable" "Secure Boot → Disabled"
+        set_bios "--tpmsecurity=enable" "TPM 2.0 → Enabled"
+        set_bios "--inteltme=disable" "Intel TME → Disabled"
+        set_bios "--chasintrusion=disable" "Chassis Intrusion → Disabled"
+        set_bios "--smmmitig=disable" "SMM Security Mitigation → Disabled"
+        
+        echo -e "\n  ${BOLD}── Boot & Headless ──${NC}"
+        set_bios "--warnerror=continue" "Warnings and Errors → Continue"
+        set_bios "--fastboot=auto" "Fast Boot → Auto"
+        set_bios "--extposttime=0s" "Extend BIOS POST Time → 0 seconds"
+        
+        echo -e "\n  ${BOLD}── Dell-tjänster (inaktivera) ──${NC}"
+        set_bios "--biosconnect=disable" "BIOSConnect → Disabled"
+        set_bios "--supportassist=disable" "SupportAssist OS Recovery → Disabled"
+        set_bios "--fota=disable" "Firmware OTA → Disabled"
+        set_bios "--absolute=disable" "Absolute/Computrace → Disabled"
+        
+        echo -e "\n  ${BOLD}── Update & Recovery ──${NC}"
+        set_bios "--biosdowngrade=enable" "Allow BIOS Downgrade → Enabled"
+        set_bios "--capsulefwupdate=enable" "Capsule Firmware Update → Enabled"
+        
+        echo ""
+        if [ $BIOS_ERRORS -eq 0 ]; then
+            msg_ok "Alla BIOS-inställningar konfigurerade!"
+        else
+            msg_warn "$BIOS_ERRORS inställning(ar) misslyckades — se ovan."
+            msg_info "Dessa kan behöva ställas in manuellt i BIOS (F2 vid boot)."
+        fi
+        
+        echo "" > /dev/tty
+        echo -e "  ${YELLOW}OBS: BIOS-ändringarna träder i kraft vid nästa omstart.${NC}" > /dev/tty
+        echo -e "  ${YELLOW}En reboot rekommenderas efter att hela installationen är klar.${NC}" > /dev/tty
+        echo "" > /dev/tty
+        
+        set_state bios_configured true
+    fi
+else
+    msg_skip "BIOS-konfiguration hoppades över."
+    msg_info "Du kan ställa in BIOS manuellt — se docs/01-bios-setup.md"
+    msg_info "Eller kör detta skript igen senare och välj Ja."
+fi
+
 # --- Hostname ---
 if [ -n "$NODE_HOSTNAME" ] && [ "$NODE_HOSTNAME" != "$(hostname)" ]; then
     CURRENT_HOSTNAME=$(hostname)
@@ -43,7 +218,6 @@ if [ -n "$NODE_HOSTNAME" ] && [ "$NODE_HOSTNAME" != "$(hostname)" ]; then
     echo -e "    kan kräva extra steg. Det är enklast att göra det tidigt.\n" > /dev/tty
     
     if ask_yes_no "Vill du byta hostname till '${NODE_HOSTNAME}'?" "Y"; then
-        # Byt hostname
         hostnamectl set-hostname "$NODE_HOSTNAME"
         sed -i "s/${CURRENT_HOSTNAME}/${NODE_HOSTNAME}/g" /etc/hosts 2>/dev/null
         msg_ok "Hostname ändrat till: ${NODE_HOSTNAME}"
@@ -129,18 +303,10 @@ else
     msg_warn "Kunde inte hitta primärt nätverkskort"
 fi
 
-# --- BIOS Sanity Check ---
+# --- BIOS Sanity Check (verifierar att inställningarna tog) ---
 echo ""
-msg_info "Utför BIOS-verifiering..."
+msg_info "Verifierar BIOS-inställningar från OS-sidan..."
 echo ""
-echo -e "  > ${BOLD}Dessa inställningar bör vara aktiva i BIOS:${NC}" > /dev/tty
-echo -e "    • Intel Virtualization Technology (VT-x) — för VMs" > /dev/tty
-echo -e "    • VT for Direct I/O (VT-d) — för iGPU passthrough" > /dev/tty
-echo -e "    • Multi-Display / iGPU Memory — för Frigate AI" > /dev/tty
-echo -e "    • Wake on LAN — för fjärrstart" > /dev/tty
-echo -e "    • AC Recovery: Power On — startar automatiskt efter strömavbrott" > /dev/tty
-echo -e "    • Deep Sleep: Disabled — nätverkskortet behåller ström" > /dev/tty
-echo "" > /dev/tty
 
 BIOS_OK=true
 
@@ -148,7 +314,7 @@ BIOS_OK=true
 if grep -c -E '(vmx|svm)' /proc/cpuinfo > /dev/null 2>&1; then
     msg_ok "VT-x (Virtualisering) är aktiverat"
 else
-    msg_err "VT-x saknas! Aktivera 'Intel Virtualization Technology' i BIOS."
+    msg_err "VT-x saknas! Aktivera 'Intel Virtualization Technology' i BIOS (F2 vid boot)."
     BIOS_OK=false
 fi
 
@@ -156,15 +322,14 @@ fi
 if dmesg 2>/dev/null | grep -i -q -e "DMAR" -e "IOMMU"; then
     msg_ok "VT-d (IOMMU) är aktiverat"
 else
-    msg_warn "VT-d verkar saknas. Aktivera 'VT for Direct I/O' i BIOS."
-    msg_info "Tips: Stäng även av 'DMA Protection' (Pre-boot) om det finns."
+    msg_warn "VT-d verkar saknas. Om du just konfigurerade BIOS krävs en reboot."
+    msg_info "Om det fortfarande saknas efter reboot: aktivera 'VT for Direct I/O' i BIOS."
     BIOS_OK=false
 fi
 
 # Kolla iGPU
 if [ -e /dev/dri/renderD128 ]; then
     msg_ok "Intel iGPU hittades (/dev/dri/renderD128)"
-    # Kolla vainfo om det finns
     if command -v vainfo &>/dev/null; then
         VAAPI_DRIVER=$(vainfo 2>/dev/null | grep "vainfo: Driver" | head -1)
         if [ -n "$VAAPI_DRIVER" ]; then
@@ -172,23 +337,20 @@ if [ -e /dev/dri/renderD128 ]; then
         fi
     fi
 else
-    msg_warn "Hittade ingen iGPU. Kontrollera i BIOS:"
-    msg_info "  • 'Multi-Display' ska vara ON"
-    msg_info "  • 'Primary Display' ska vara 'Auto' (inte 'PCI')"
+    msg_warn "Hittade ingen iGPU. Om du just konfigurerade BIOS krävs en reboot."
+    msg_info "Om det fortfarande saknas: kontrollera 'Multi-Display' i BIOS."
     BIOS_OK=false
-fi
-
-# Kolla om AC Recovery verkar vara satt (kan inte verifiera direkt, men vi kan kolla uptime)
-UPTIME_SECONDS=$(cat /proc/uptime | cut -d. -f1)
-if [ "$UPTIME_SECONDS" -lt 300 ]; then
-    msg_info "Servern startades nyligen — bra! Om den startar automatiskt efter strömavbrott"
-    msg_info "är 'AC Recovery: Power On' korrekt inställt i BIOS."
 fi
 
 if [ "$BIOS_OK" == "false" ]; then
     echo "" > /dev/tty
-    msg_warn "Vissa BIOS-inställningar verkar saknas."
-    msg_info "Se docs/01-bios-setup.md för komplett BIOS-guide."
+    if [ "$(get_state bios_configured)" == "true" ]; then
+        msg_info "Du konfigurerade just BIOS — en reboot krävs för att ändringarna ska synas."
+        msg_info "Kör om wizarden efter reboot: cd /opt/optiplex-homelab/scripts && bash setup.sh"
+    else
+        msg_warn "Vissa BIOS-inställningar verkar saknas."
+        msg_info "Se docs/01-bios-setup.md för komplett BIOS-guide."
+    fi
     echo "" > /dev/tty
     if ! ask_yes_no "Vill du fortsätta ändå?" "Y"; then
         exit 1
