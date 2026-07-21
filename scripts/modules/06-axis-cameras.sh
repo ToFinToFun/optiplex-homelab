@@ -718,7 +718,6 @@ echo -e "" > /dev/tty
 echo -e "     Profil '${GREEN}main${NC}' (inspelning + livevy):" > /dev/tty
 echo -e "       Codec: ${BOLD}H.265${NC}, Resolution: Max (t.ex. 2592×1944)" > /dev/tty
 echo -e "       Frame rate: 15, Compression: 30" > /dev/tty
-echo -e "       Zipstream: ${RED}Av${NC} (tar bort keyframes)" > /dev/tty
 echo -e "" > /dev/tty
 echo -e "     Profil '${GREEN}detect${NC}' (AI-detektering):" > /dev/tty
 echo -e "       Codec: ${BOLD}H.265${NC}, Resolution: 1280×960 (4:3)" > /dev/tty

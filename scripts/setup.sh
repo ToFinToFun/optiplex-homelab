@@ -843,7 +843,7 @@ Logga in på varje kameras webbgränssnitt:
   - Lösenord: **(ditt gemensamma lösenord)**
   - Roll: **Viewer** eller **Operator** (ej Admin)
 - [ ] Skapa stream-profiler (Axis-kameror):
-  - Profil **main**: Codec H.265, Max upplösning (2592×1944), 15 fps, Compression 30, Zipstream Av
+  - Profil **main**: Codec H.265, Max upplösning (2592×1944), 15 fps, Compression 30
   - Profil **detect**: Codec H.265, 1280×960 (4:3), 5 fps, Compression 30
 
 > Utan detta kan Frigate inte ansluta till kamerorna.

@@ -31,7 +31,6 @@ Gå till **System** -> **Users** och skapa en ny användare:
    - **Resolution:** Max upplösning (t.ex. 2592×1944 för 5MP)
    - **Frame rate:** 15 fps
    - **Compression:** 30
-   - **Zipstream:** Av (undvik — tar bort keyframes som Frigate behöver)
    - **GOV length / I-frame interval:** 15 (= samma som framerate)
 3. Skapa en profil som heter `detect` (AI-detektering):
    - **Codec:** H.265
