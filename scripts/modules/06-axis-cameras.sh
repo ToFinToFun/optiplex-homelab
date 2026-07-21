@@ -46,28 +46,94 @@ fi
 if [ -f "/opt/optiplex-homelab/generated/frigate-config.yml" ] || [ "$EXISTING_CONFIG" == "true" ]; then
     echo "" > /dev/tty
     msg_warn "En Frigate-konfiguration finns redan!"
-    echo -e "  ${YELLOW}Om du fortsätter skrivs den ÖVER — alla zoner/masker du${NC}" > /dev/tty
-    echo -e "  ${YELLOW}konfigurerat i Frigate UI försvinner!${NC}" > /dev/tty
     echo "" > /dev/tty
-    echo -e "  ${BOLD}Alternativ:${NC}" > /dev/tty
-    echo -e "  1) Skriv över (ny config från scratch)" > /dev/tty
-    echo -e "  2) Avbryt (behåll befintlig config)" > /dev/tty
-    echo -ne "\n  ${BOLD}Välj [1/2]: ${NC}" > /dev/tty
+    echo -e "  ${BOLD}Vad vill du göra?${NC}" > /dev/tty
+    echo -e "  1) Generera ny config från scratch (skriver över — zoner/masker försvinner!)" > /dev/tty
+    echo -e "  2) Uppdatera credentials (RTSP/MQTT/Gemini — behåller kameror & zoner)" > /dev/tty
+    echo -e "  3) Avbryt (behåll allt som det är)" > /dev/tty
+    echo -ne "\n  ${BOLD}Välj [1/2/3]: ${NC}" > /dev/tty
     read OVERWRITE_CHOICE < /dev/tty
     
-    if [ "$OVERWRITE_CHOICE" != "1" ]; then
-        msg_skip "Behåller befintlig konfiguration."
-        msg_info "Tips: Redigera config direkt i Frigate UI eller via:"
-        msg_info "  pct exec ${IP_FRIGATE} -- nano /opt/frigate/config/config.yml"
-        exit 0
-    fi
-    
-    # Backup befintlig config
-    if [ "$FRIGATE_READY" == "true" ] && [ "$EXISTING_CONFIG" == "true" ]; then
-        BACKUP_NAME="config.yml.backup.$(date +%Y%m%d_%H%M%S)"
-        pct exec ${IP_FRIGATE} -- cp /opt/frigate/config/config.yml "/opt/frigate/config/${BACKUP_NAME}" 2>/dev/null
-        msg_ok "Backup skapad: /opt/frigate/config/${BACKUP_NAME}"
-    fi
+    case "$OVERWRITE_CHOICE" in
+        1)
+            # Backup befintlig config
+            if [ "$FRIGATE_READY" == "true" ] && [ "$EXISTING_CONFIG" == "true" ]; then
+                BACKUP_NAME="config.yml.backup.$(date +%Y%m%d_%H%M%S)"
+                pct exec ${IP_FRIGATE} -- cp /opt/frigate/config/config.yml "/opt/frigate/config/${BACKUP_NAME}" 2>/dev/null
+                msg_ok "Backup skapad: /opt/frigate/config/${BACKUP_NAME}"
+            fi
+            # Fortsätt med full regenerering nedan
+            ;;
+        2)
+            # UPPDATERA CREDENTIALS ONLY
+            msg_info "Uppdaterar credentials i befintlig config..."
+            echo "" > /dev/tty
+            echo -e "  ${CYAN}Ange nya credentials (Enter = behåll befintligt värde):${NC}" > /dev/tty
+            echo "" > /dev/tty
+            
+            NEW_RTSP_USER=$(ask_string "RTSP-användarnamn" "${SERVICE_USER:-frigate}")
+            NEW_RTSP_PASS=$(ask_string "RTSP-lösenord" "${SHARED_PASSWORD}" "true")
+            NEW_MQTT_USER=$(ask_string "MQTT-användarnamn" "${SERVICE_USER:-frigate}")
+            NEW_MQTT_PASS=$(ask_string "MQTT-lösenord" "${SHARED_PASSWORD}" "true")
+            
+            GEMINI_UPDATE=""
+            if ask_yes_no "Uppdatera Google Gemini API-nyckel?" "N"; then
+                GEMINI_UPDATE=$(ask_string "Ny Gemini API-nyckel" "" "true")
+            fi
+            
+            # Skriv uppdaterad .env
+            ENV_TARGET=""
+            if [ "$FRIGATE_READY" == "true" ]; then
+                ENV_TARGET="/tmp/frigate-env-update"
+            else
+                ENV_TARGET="/opt/optiplex-homelab/generated/frigate.env"
+            fi
+            
+            cat > "$ENV_TARGET" << EOF
+# Frigate Environment Variables (uppdaterad $(date +%Y-%m-%d))
+FRIGATE_RTSP_USER=${NEW_RTSP_USER}
+FRIGATE_RTSP_PASSWORD=${NEW_RTSP_PASS}
+FRIGATE_MQTT_USER=${NEW_MQTT_USER}
+FRIGATE_MQTT_PASSWORD=${NEW_MQTT_PASS}
+EOF
+            
+            if [ -n "$GEMINI_UPDATE" ]; then
+                echo "FRIGATE_GEMINI_API_KEY=${GEMINI_UPDATE}" >> "$ENV_TARGET"
+            elif [ "$FRIGATE_READY" == "true" ]; then
+                # Behåll befintlig Gemini-nyckel om den finns
+                OLD_GEMINI=$(pct exec ${IP_FRIGATE} -- grep "FRIGATE_GEMINI_API_KEY" /opt/frigate/.env 2>/dev/null | cut -d= -f2)
+                [ -n "$OLD_GEMINI" ] && echo "FRIGATE_GEMINI_API_KEY=${OLD_GEMINI}" >> "$ENV_TARGET"
+            fi
+            
+            if [ "$FRIGATE_READY" == "true" ]; then
+                pct push ${IP_FRIGATE} "$ENV_TARGET" /opt/frigate/.env
+                rm -f "$ENV_TARGET"
+                
+                # Starta om Frigate för att läsa nya credentials
+                msg_info "Startar om Frigate..."
+                pct exec ${IP_FRIGATE} -- bash -c "cd /opt/frigate && docker compose down && docker compose up -d" 2>/dev/null
+                sleep 5
+                if pct exec ${IP_FRIGATE} -- bash -c "docker ps | grep -q frigate" 2>/dev/null; then
+                    msg_ok "Frigate körs med uppdaterade credentials!"
+                else
+                    msg_warn "Frigate verkar inte ha startat. Kolla loggar:"
+                    msg_info "  pct exec ${IP_FRIGATE} -- docker logs frigate --tail 20"
+                fi
+            else
+                msg_ok "Credentials sparade lokalt: $ENV_TARGET"
+                msg_info "Pusha till Frigate när containern är igång."
+            fi
+            
+            msg_ok "Credentials uppdaterade!"
+            exit 0
+            ;;
+        *)
+            msg_skip "Behåller befintlig konfiguration."
+            msg_info "Tips: Redigera config direkt i Frigate UI eller via:"
+            msg_info "  pct exec ${IP_FRIGATE} -- nano /opt/frigate/config/config.yml"
+            exit 0
+            ;;
+    esac
 fi
 
 # ============================================================

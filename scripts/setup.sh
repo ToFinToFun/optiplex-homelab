@@ -230,94 +230,162 @@ CURRENT_STEP=$((CURRENT_STEP + 1))
 show_progress $CURRENT_STEP $TOTAL_STEPS "Inventering"
 msg_header "Inventering av systemet"
 
-# Status variabler
+# Status variabler — default: installera det som saknas
 DO_HOST="y"
 DO_HA="y"
 DO_CF="y"
 DO_NPM="y"
 DO_FRIGATE="y"
-
-# Kolla vad som redan finns och erbjud att köra ändå
-if [ "$(get_state host_configured)" == "true" ]; then
-    msg_skip "Proxmox Host är redan konfigurerad"
-    DO_HOST="n"
-else
-    msg_info "Proxmox Host behöver konfigureras (repos, udev)"
-fi
-
-# Variabler för moduler som inte har egna IDs
 DO_CAMERAS="y"
 DO_CF_DNS="y"
 DO_NPM_CONF="y"
 
-if [ "$(get_state cameras_configured)" == "true" ]; then
-    if ask_yes_no "Axis Kameror är redan konfigurerade. Vill du köra kamera-skriptet igen?" "N"; then
-        DO_CAMERAS="y"
-    else
-        DO_CAMERAS="n"
-    fi
+# Inventera vad som redan är klart
+STATUS_HOST="saknas"
+STATUS_HA="saknas"
+STATUS_CF="saknas"
+STATUS_NPM="saknas"
+STATUS_FRIGATE="saknas"
+STATUS_CAMERAS="saknas"
+STATUS_CFDNS="saknas"
+STATUS_NPMCONF="saknas"
+
+[ "$(get_state host_configured)" == "true" ] && STATUS_HOST="klar"
+check_id_exists $IP_HA 2>/dev/null && STATUS_HA="installerad"
+check_id_exists $IP_CLOUDFLARED 2>/dev/null && STATUS_CF="installerad"
+check_id_exists $IP_NPM 2>/dev/null && STATUS_NPM="installerad"
+check_id_exists $IP_FRIGATE 2>/dev/null && STATUS_FRIGATE="installerad"
+[ "$(get_state cameras_configured)" == "true" ] && STATUS_CAMERAS="klar"
+[ "$(get_state cfdns_configured)" == "true" ] && STATUS_CFDNS="klar"
+[ "$(get_state npm_configured)" == "true" ] && STATUS_NPMCONF="klar"
+
+# Räkna hur många som är klara
+DONE_COUNT=0
+[ "$STATUS_HOST" != "saknas" ] && DONE_COUNT=$((DONE_COUNT + 1))
+[ "$STATUS_HA" != "saknas" ] && DONE_COUNT=$((DONE_COUNT + 1))
+[ "$STATUS_CF" != "saknas" ] && DONE_COUNT=$((DONE_COUNT + 1))
+[ "$STATUS_NPM" != "saknas" ] && DONE_COUNT=$((DONE_COUNT + 1))
+[ "$STATUS_FRIGATE" != "saknas" ] && DONE_COUNT=$((DONE_COUNT + 1))
+[ "$STATUS_CAMERAS" != "saknas" ] && DONE_COUNT=$((DONE_COUNT + 1))
+[ "$STATUS_CFDNS" != "saknas" ] && DONE_COUNT=$((DONE_COUNT + 1))
+[ "$STATUS_NPMCONF" != "saknas" ] && DONE_COUNT=$((DONE_COUNT + 1))
+
+# Om ALLT saknas — första körningen, kör allt utan meny
+if [ $DONE_COUNT -eq 0 ]; then
+    msg_info "Första installationen — alla steg körs."
+else
+    # Re-run: Visa meny
+    status_icon() {
+        if [ "$1" == "saknas" ]; then
+            echo -e "${RED}✗${NC}"
+        else
+            echo -e "${GREEN}✓${NC}"
+        fi
+    }
+    
+    echo "" > /dev/tty
+    echo -e "  ${CYAN}╔════════════════════════════════════════════════════════╗${NC}" > /dev/tty
+    echo -e "  ${CYAN}║${NC} ${BOLD}Befintlig installation hittad!${NC}                        ${CYAN}║${NC}" > /dev/tty
+    echo -e "  ${CYAN}╠════════════════════════════════════════════════════════╣${NC}" > /dev/tty
+    printf "  ${CYAN}║${NC}  1. $(status_icon $STATUS_HOST) Proxmox Host         %-16s ${CYAN}║${NC}\n" "($STATUS_HOST)" > /dev/tty
+    printf "  ${CYAN}║${NC}  2. $(status_icon $STATUS_HA) Home Assistant       %-16s ${CYAN}║${NC}\n" "($STATUS_HA)" > /dev/tty
+    printf "  ${CYAN}║${NC}  3. $(status_icon $STATUS_CF) Cloudflared          %-16s ${CYAN}║${NC}\n" "($STATUS_CF)" > /dev/tty
+    printf "  ${CYAN}║${NC}  4. $(status_icon $STATUS_NPM) NPM                  %-16s ${CYAN}║${NC}\n" "($STATUS_NPM)" > /dev/tty
+    printf "  ${CYAN}║${NC}  5. $(status_icon $STATUS_FRIGATE) Frigate              %-16s ${CYAN}║${NC}\n" "($STATUS_FRIGATE)" > /dev/tty
+    printf "  ${CYAN}║${NC}  6. $(status_icon $STATUS_CAMERAS) Kameror & Config     %-16s ${CYAN}║${NC}\n" "($STATUS_CAMERAS)" > /dev/tty
+    printf "  ${CYAN}║${NC}  7. $(status_icon $STATUS_CFDNS) Cloudflare DNS       %-16s ${CYAN}║${NC}\n" "($STATUS_CFDNS)" > /dev/tty
+    printf "  ${CYAN}║${NC}  8. $(status_icon $STATUS_NPMCONF) NPM Auto-Config      %-16s ${CYAN}║${NC}\n" "($STATUS_NPMCONF)" > /dev/tty
+    echo -e "  ${CYAN}╠════════════════════════════════════════════════════════╣${NC}" > /dev/tty
+    echo -e "  ${CYAN}║${NC}                                                        ${CYAN}║${NC}" > /dev/tty
+    echo -e "  ${CYAN}║${NC}  ${BOLD}N${NC} = Kör bara det som saknas (rekommenderat)           ${CYAN}║${NC}" > /dev/tty
+    echo -e "  ${CYAN}║${NC}  ${BOLD}A${NC} = Kör ALLT (inklusive klara steg)                   ${CYAN}║${NC}" > /dev/tty
+    echo -e "  ${CYAN}║${NC}  ${BOLD}1-8${NC} = Välj specifika steg (t.ex. ${GREEN}6,8${NC})               ${CYAN}║${NC}" > /dev/tty
+    echo -e "  ${CYAN}║${NC}  ${BOLD}Q${NC} = Avsluta                                            ${CYAN}║${NC}" > /dev/tty
+    echo -e "  ${CYAN}║${NC}                                                        ${CYAN}║${NC}" > /dev/tty
+    echo -e "  ${CYAN}╚════════════════════════════════════════════════════════╝${NC}" > /dev/tty
+    echo "" > /dev/tty
+    echo -ne "  ${BOLD}Välj [N/A/1-8/Q]: ${NC}" > /dev/tty
+    read MENU_CHOICE < /dev/tty
+    
+    case "${MENU_CHOICE^^}" in
+        Q|q)
+            msg_info "Avslutar."
+            exit 0
+            ;;
+        A|a)
+            # Kör allt — återställ alla DO_* till y
+            msg_info "Kör alla steg (befintliga containers skrivs INTE över)."
+            ;;
+        N|n|"")
+            # Default: kör bara det som saknas
+            [ "$STATUS_HOST" != "saknas" ] && DO_HOST="n"
+            [ "$STATUS_HA" != "saknas" ] && DO_HA="n"
+            [ "$STATUS_CF" != "saknas" ] && DO_CF="n"
+            [ "$STATUS_NPM" != "saknas" ] && DO_NPM="n"
+            [ "$STATUS_FRIGATE" != "saknas" ] && DO_FRIGATE="n"
+            [ "$STATUS_CAMERAS" != "saknas" ] && DO_CAMERAS="n"
+            [ "$STATUS_CFDNS" != "saknas" ] && DO_CF_DNS="n"
+            [ "$STATUS_NPMCONF" != "saknas" ] && DO_NPM_CONF="n"
+            msg_info "Kör bara steg som saknas."
+            ;;
+        *)
+            # Specifika steg (t.ex. "6,8" eller "6 8" eller "6")
+            # Sätt alla till n först
+            DO_HOST="n"; DO_HA="n"; DO_CF="n"; DO_NPM="n"
+            DO_FRIGATE="n"; DO_CAMERAS="n"; DO_CF_DNS="n"; DO_NPM_CONF="n"
+            
+            # Parsa val (stöd: "6,8", "6 8", "6, 8")
+            SELECTED=$(echo "$MENU_CHOICE" | tr ',' ' ' | tr -s ' ')
+            for sel in $SELECTED; do
+                case "$sel" in
+                    1) DO_HOST="y" ;;
+                    2) DO_HA="y" ;;
+                    3) DO_CF="y" ;;
+                    4) DO_NPM="y" ;;
+                    5) DO_FRIGATE="y" ;;
+                    6) DO_CAMERAS="y" ;;
+                    7) DO_CF_DNS="y" ;;
+                    8) DO_NPM_CONF="y" ;;
+                    *) msg_warn "Okänt val: $sel (ignoreras)" ;;
+                esac
+            done
+            msg_info "Kör valda steg: ${MENU_CHOICE}"
+            ;;
+    esac
 fi
 
-if [ "$(get_state cfdns_configured)" == "true" ]; then
-    if ask_yes_no "Cloudflare DNS är redan konfigurerat. Vill du köra DNS-skriptet igen?" "N"; then
-        DO_CF_DNS="y"
-    else
-        DO_CF_DNS="n"
-    fi
-fi
-
-if [ "$(get_state npm_configured)" == "true" ]; then
-    if ask_yes_no "NPM Auto-Config är redan körd. Vill du köra den igen?" "N"; then
-        DO_NPM_CONF="y"
-    else
-        DO_NPM_CONF="n"
-    fi
-fi
-
-if check_id_exists $IP_HA; then
-    if ask_yes_no "VM $IP_HA (Home Assistant) finns redan. Vill du köra HA-skriptet igen?" "N"; then
-        DO_HA="y"
-    else
+# Säkerhetskontroll: Om CT/VM redan finns och DO_*=y, fråga om de vill ÅTERSKAPA
+# (skyddar mot att av misstag radera en fungerande container)
+if [ "$DO_HA" == "y" ] && check_id_exists $IP_HA 2>/dev/null; then
+    msg_warn "VM $IP_HA (Home Assistant) finns redan och körs."
+    if ! ask_yes_no "Vill du RADERA och återskapa den? (ALL DATA FÖRSVINNER)" "N"; then
         DO_HA="n"
+        msg_skip "Behåller befintlig HA-VM."
     fi
-else
-    msg_info "VM $IP_HA (Home Assistant) saknas"
 fi
 
-if check_id_exists $IP_CLOUDFLARED; then
-    if ask_yes_no "CT $IP_CLOUDFLARED (Cloudflared) finns redan. Vill du köra Cloudflare-skriptet igen?" "N"; then
-        DO_CF="y"
-    else
+if [ "$DO_CF" == "y" ] && check_id_exists $IP_CLOUDFLARED 2>/dev/null; then
+    msg_warn "CT $IP_CLOUDFLARED (Cloudflared) finns redan."
+    if ! ask_yes_no "Vill du RADERA och återskapa den?" "N"; then
         DO_CF="n"
+        msg_skip "Behåller befintlig Cloudflared-container."
     fi
-else
-    msg_info "CT $IP_CLOUDFLARED (Cloudflared) saknas"
 fi
 
-if check_id_exists $IP_NPM; then
-    if ask_yes_no "CT $IP_NPM (NPM) finns redan. Vill du köra NPM-skriptet igen?" "N"; then
-        DO_NPM="y"
-    else
+if [ "$DO_NPM" == "y" ] && check_id_exists $IP_NPM 2>/dev/null; then
+    msg_warn "CT $IP_NPM (NPM) finns redan."
+    if ! ask_yes_no "Vill du RADERA och återskapa den?" "N"; then
         DO_NPM="n"
+        msg_skip "Behåller befintlig NPM-container."
     fi
-else
-    msg_info "CT $IP_NPM (NPM) saknas"
 fi
 
-if check_id_exists $IP_FRIGATE; then
-    if ask_yes_no "CT $IP_FRIGATE (Frigate) finns redan. Vill du köra Frigate-skriptet igen?" "N"; then
-        DO_FRIGATE="y"
-    else
+if [ "$DO_FRIGATE" == "y" ] && check_id_exists $IP_FRIGATE 2>/dev/null; then
+    msg_warn "CT $IP_FRIGATE (Frigate) finns redan."
+    if ! ask_yes_no "Vill du RADERA och återskapa den?" "N"; then
         DO_FRIGATE="n"
+        msg_skip "Behåller befintlig Frigate-container."
     fi
-else
-    msg_info "CT $IP_FRIGATE (Frigate) saknas"
-fi
-
-echo ""
-if ! ask_yes_no "Vill du fortsätta med vald installation?" "Y"; then
-    msg_info "Avbryter installationen."
-    exit 0
 fi
 
 # ==========================================
