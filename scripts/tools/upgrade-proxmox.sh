@@ -5,7 +5,10 @@
 # Uppgraderar din Proxmox-installation från version 8 (Bookworm)
 # till version 9 (Trixie) via in-place upgrade.
 #
-# Användning:
+# Användning (direkt via curl, kräver inga förinstallerade verktyg):
+#   bash <(curl -fsSL https://raw.githubusercontent.com/ToFinToFun/optiplex-homelab/master/scripts/tools/upgrade-proxmox.sh)
+#
+# Eller om repot redan är klonat:
 #   cd /opt/optiplex-homelab/scripts && bash tools/upgrade-proxmox.sh
 #
 # Baserat på officiell guide:
@@ -95,7 +98,8 @@ echo -e "  • Se till att du har backup av viktiga VMs/CTs"
 echo -e "  • Stäng av alla VMs och containers (rekommenderat)"
 echo -e "  • Se till att du har fysisk/IPMI-access (om SSH bryts)"
 echo ""
-read -p "$(echo -e ${BOLD}Vill du fortsätta med uppgraderingen? [j/N]:${NC} )" CONFIRM
+echo -ne "${BOLD}Vill du fortsätta med uppgraderingen? [j/N]: ${NC}" > /dev/tty
+read CONFIRM < /dev/tty
 if [[ ! "$CONFIRM" =~ ^[jJyY]$ ]]; then
     echo -e "\n${YELLOW}[AVBRUTEN]${NC} Uppgraderingen avbröts. Inget har ändrats."
     exit 0
@@ -136,7 +140,8 @@ echo -e "  ${CYAN}→${NC} Uppgraderar alla 8.4-paket..."
 if ! apt-get dist-upgrade -y 2>&1 | tail -5; then
     echo -e "  ${RED}[FEL]${NC} apt dist-upgrade misslyckades."
     echo -e "        Kolla loggen: $LOG"
-    read -p "$(echo -e ${BOLD}Vill du fortsätta ändå? [j/N]:${NC} )" CONT
+    echo -ne "${BOLD}Vill du fortsätta ändå? [j/N]: ${NC}" > /dev/tty
+    read CONT < /dev/tty
     [[ ! "$CONT" =~ ^[jJyY]$ ]] && exit 1
 fi
 
@@ -171,11 +176,13 @@ if grep -q "FAILURES" /tmp/pve8to9-output.txt; then
     echo -e "  ${RED}[VARNING]${NC} pve8to9 hittade problem som bör åtgärdas!"
     echo -e "        Läs utskriften ovan noggrant."
     echo ""
-    read -p "$(echo -e ${BOLD}Vill du fortsätta trots varningarna? [j/N]:${NC} )" CONT
+    echo -ne "${BOLD}Vill du fortsätta trots varningarna? [j/N]: ${NC}" > /dev/tty
+    read CONT < /dev/tty
     [[ ! "$CONT" =~ ^[jJyY]$ ]] && { echo -e "\n${YELLOW}[AVBRUTEN]${NC} Fixa problemen och kör skriptet igen."; exit 1; }
 elif grep -qi "WARN" /tmp/pve8to9-output.txt; then
     echo -e "  ${YELLOW}[INFO]${NC} pve8to9 hade varningar (ej kritiska)."
-    read -p "$(echo -e ${BOLD}Fortsätta? [J/n]:${NC} )" CONT
+    echo -ne "${BOLD}Fortsätta? [J/n]: ${NC}" > /dev/tty
+    read CONT < /dev/tty
     [[ "$CONT" =~ ^[nN]$ ]] && exit 0
 else
     echo -e "  ${GREEN}[OK]${NC} Inga problem hittades!"
@@ -227,7 +234,8 @@ echo -e "  ${CYAN}→${NC} Uppdaterar paketlistor med nya repos..."
 if ! apt-get update 2>&1 | tail -3; then
     echo -e "  ${RED}[FEL]${NC} apt update misslyckades med nya repos."
     echo -e "        Kontrollera /etc/apt/sources.list och sources.list.d/"
-    read -p "$(echo -e ${BOLD}Vill du fortsätta ändå? [j/N]:${NC} )" CONT
+    echo -ne "${BOLD}Vill du fortsätta ändå? [j/N]: ${NC}" > /dev/tty
+    read CONT < /dev/tty
     [[ ! "$CONT" =~ ^[jJyY]$ ]] && exit 1
 fi
 
@@ -250,7 +258,8 @@ echo -e "  konfigurationsfiler. Välj att ${BOLD}behålla din nuvarande version$
 echo -e "  (keep the local version currently installed) om du är osäker."
 echo ""
 
-read -p "$(echo -e ${BOLD}Starta uppgraderingen nu? [j/N]:${NC} )" CONFIRM
+echo -ne "${BOLD}Starta uppgraderingen nu? [j/N]: ${NC}" > /dev/tty
+read CONFIRM < /dev/tty
 if [[ ! "$CONFIRM" =~ ^[jJyY]$ ]]; then
     echo -e "\n${YELLOW}[AVBRUTEN]${NC} Repos är redan bytta till Trixie."
     echo -e "  Kör ${GREEN}apt dist-upgrade${NC} manuellt när du är redo."
@@ -291,7 +300,8 @@ echo -e "  ${YELLOW}[TIPS]${NC} Om du kör detta via SSH kan du tappa anslutning
 echo -e "  under omstarten. Vänta 2-3 minuter och anslut igen."
 echo ""
 
-read -p "$(echo -e ${BOLD}Starta om nu? [j/N]:${NC} )" REBOOT
+echo -ne "${BOLD}Starta om nu? [j/N]: ${NC}" > /dev/tty
+read REBOOT < /dev/tty
 if [[ "$REBOOT" =~ ^[jJyY]$ ]]; then
     echo -e "\n  ${CYAN}→${NC} Startar om...\n"
     reboot
