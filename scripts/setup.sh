@@ -160,6 +160,24 @@ if [ "$DO_FRIGATE" == "y" ]; then
     bash modules/05-frigate.sh "$TEMPLATE_PATH"
 fi
 
+# 4.7 Axis Kameror
+if [ "$DO_FRIGATE" == "y" ] || [ "$(get_state host_configured)" == "true" ]; then
+    print_banner "Axis Kameror" "Skannar nätverket efter kameror och skapar Frigate-config automatiskt."
+    bash modules/06-axis-cameras.sh
+fi
+
+# 4.8 Cloudflare DNS
+if [ "$DO_CF" == "y" ] || [ "$DO_NPM" == "y" ] || [ "$(get_state host_configured)" == "true" ]; then
+    print_banner "Cloudflare DNS" "Sätter automatiskt upp domäner via Cloudflare API."
+    bash modules/07-cloudflare-dns.sh
+fi
+
+# 4.9 NPM Auto-Config
+if [ "$DO_NPM" == "y" ] || [ "$(get_state host_configured)" == "true" ]; then
+    print_banner "NPM Auto-Config" "Sätter upp proxy-regler i NPM automatiskt."
+    bash modules/08-npm-config.sh
+fi
+
 # ==========================================
 # 5. Summary
 # ==========================================

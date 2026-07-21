@@ -71,7 +71,9 @@ bash setup.sh
 *(Skriptet ställer frågorna interaktivt. Vill du slippa svara kan du kopiera `setup.env.example` till `setup.env` först).*
 
 #### Fler verktyg
-- `bash tools/update.sh` — Uppdaterar Proxmox och drar ner senaste Docker-images för alla tjänster.
+- `bash tools/status.sh` — Health-check som visar status för alla tjänster, iGPU och lagring.
+- `bash tools/usb-backup.sh` — Tar säkerhetskopia av hela systemet (Proxmox vzdump) till ett USB-minne.
+- `bash tools/update.sh` — Uppdaterar Proxmox och drar ner senaste Docker-images.
 - `bash tools/uninstall.sh` — Tar bort alla skapade containers/VMs rent så du kan börja om.
 
 ### Konfigurationsfiler
