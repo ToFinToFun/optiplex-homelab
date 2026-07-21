@@ -6,35 +6,37 @@
 # Detektera nätverksinställningar automatiskt
 # Returnerar: DETECTED_GATEWAY, DETECTED_PREFIX, DETECTED_DNS, DETECTED_IP, DETECTED_NIC
 detect_network() {
+    # Timeout-wrapper — kör kommando med max 3 sekunders timeout
+    _net_cmd() {
+        timeout 3 bash -c "$1" 2>/dev/null || echo ""
+    }
+
     # Hitta primärt nätverkskort
-    # På Proxmox går default route ofta via vmbr0 (brygga).
-    # Vi visar både bryggan och det fysiska NIC:et för tydlighet.
-    DETECTED_NIC=$(ip route show default 2>/dev/null | awk '{print $5}' | head -1)
+    DETECTED_NIC=$(_net_cmd "ip route show default | awk '{print \$5}' | head -1")
     DETECTED_PHYSICAL_NIC=""
     
     if [[ "$DETECTED_NIC" == vmbr* ]]; then
         # Hitta det fysiska NIC:et som är slavat till bryggan
-        DETECTED_PHYSICAL_NIC=$(ip -o link show master "$DETECTED_NIC" 2>/dev/null | awk -F': ' '{print $2}' | head -1)
+        DETECTED_PHYSICAL_NIC=$(_net_cmd "ip -o link show master $DETECTED_NIC | awk -F': ' '{print \$2}' | head -1")
         if [ -z "$DETECTED_PHYSICAL_NIC" ]; then
-            # Alternativ: kolla bridge ports
-            DETECTED_PHYSICAL_NIC=$(bridge link show 2>/dev/null | grep "$DETECTED_NIC" | awk '{print $2}' | tr -d ':' | head -1)
+            DETECTED_PHYSICAL_NIC=$(_net_cmd "bridge link show | grep $DETECTED_NIC | awk '{print \$2}' | tr -d ':' | head -1")
         fi
     fi
     
     if [ -z "$DETECTED_NIC" ]; then
         # Fallback: hitta första aktiva NIC
-        DETECTED_NIC=$(ip -o link show up | grep -v "lo\|vmbr\|tap\|veth" | awk -F': ' '{print $2}' | head -1)
+        DETECTED_NIC=$(_net_cmd "ip -o link show up | grep -v 'lo\|vmbr\|tap\|veth' | awk -F': ' '{print \$2}' | head -1")
     fi
     
     # Gateway
-    DETECTED_GATEWAY=$(ip route show default 2>/dev/null | awk '{print $3}' | head -1)
+    DETECTED_GATEWAY=$(_net_cmd "ip route show default | awk '{print \$3}' | head -1")
     
     # Vår egen IP
     if [ -n "$DETECTED_NIC" ]; then
-        DETECTED_IP=$(ip -4 addr show "$DETECTED_NIC" 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1)
+        DETECTED_IP=$(_net_cmd "ip -4 addr show $DETECTED_NIC | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1")
     fi
     if [ -z "$DETECTED_IP" ]; then
-        DETECTED_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+        DETECTED_IP=$(_net_cmd "hostname -I | awk '{print \$1}'")
     fi
     
     # Nätverksprefix (första 3 oktetter)
@@ -52,7 +54,7 @@ detect_network() {
     
     # Subnet mask
     if [ -n "$DETECTED_NIC" ]; then
-        DETECTED_CIDR=$(ip -4 addr show "$DETECTED_NIC" 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}/\d+' | head -1 | cut -d/ -f2)
+        DETECTED_CIDR=$(_net_cmd "ip -4 addr show $DETECTED_NIC | grep -oP '(?<=inet\s)\d+(\.\d+){3}/\d+' | head -1 | cut -d/ -f2")
     fi
     DETECTED_CIDR="${DETECTED_CIDR:-24}"
 }
@@ -62,18 +64,25 @@ detect_network() {
 confirm_network() {
     detect_network
     
+    # Om detektering misslyckades helt — gå direkt till manuell inmatning
+    if [ -z "$DETECTED_IP" ] && [ -z "$DETECTED_GATEWAY" ]; then
+        echo -e "\n  ${YELLOW}[INFO]${NC} Kunde inte detektera nätverket automatiskt." > /dev/tty
+        echo -e "  Du får ange inställningarna manuellt.\n" > /dev/tty
+        return 1
+    fi
+    
     echo -e "\n  ${CYAN}╔════════════════════════════════════════════════════════════╗${NC}" > /dev/tty
     echo -e "  ${CYAN}║${NC} ${BOLD}Jag hittade ditt nätverk:${NC}                                  ${CYAN}║${NC}" > /dev/tty
     echo -e "  ${CYAN}╠════════════════════════════════════════════════════════════╣${NC}" > /dev/tty
-    printf "  ${CYAN}║${NC}   Gateway:     ${GREEN}%-42s${NC} ${CYAN}║${NC}\n" "$DETECTED_GATEWAY" > /dev/tty
-    printf "  ${CYAN}║${NC}   Prefix:      ${GREEN}%-42s${NC} ${CYAN}║${NC}\n" "$DETECTED_PREFIX" > /dev/tty
-    printf "  ${CYAN}║${NC}   Din IP:      ${GREEN}%-42s${NC} ${CYAN}║${NC}\n" "$DETECTED_IP" > /dev/tty
-    printf "  ${CYAN}║${NC}   DNS:         ${GREEN}%-42s${NC} ${CYAN}║${NC}\n" "$DETECTED_DNS" > /dev/tty
+    printf "  ${CYAN}║${NC}   Gateway:     ${GREEN}%-42s${NC} ${CYAN}║${NC}\n" "${DETECTED_GATEWAY:-ej hittad}" > /dev/tty
+    printf "  ${CYAN}║${NC}   Prefix:      ${GREEN}%-42s${NC} ${CYAN}║${NC}\n" "${DETECTED_PREFIX:-ej hittad}" > /dev/tty
+    printf "  ${CYAN}║${NC}   Din IP:      ${GREEN}%-42s${NC} ${CYAN}║${NC}\n" "${DETECTED_IP:-ej hittad}" > /dev/tty
+    printf "  ${CYAN}║${NC}   DNS:         ${GREEN}%-42s${NC} ${CYAN}║${NC}\n" "${DETECTED_DNS:-ej hittad}" > /dev/tty
     # Visa NIC med fysiskt interface om det är en brygga
     if [ -n "$DETECTED_PHYSICAL_NIC" ]; then
         NIC_DISPLAY="${DETECTED_NIC} (brygga → ${DETECTED_PHYSICAL_NIC})"
     else
-        NIC_DISPLAY="$DETECTED_NIC"
+        NIC_DISPLAY="${DETECTED_NIC:-ej hittad}"
     fi
     printf "  ${CYAN}║${NC}   NIC:         ${GREEN}%-42s${NC} ${CYAN}║${NC}\n" "$NIC_DISPLAY" > /dev/tty
     printf "  ${CYAN}║${NC}   Subnät:      ${GREEN}%-42s${NC} ${CYAN}║${NC}\n" "/${DETECTED_CIDR}" > /dev/tty
