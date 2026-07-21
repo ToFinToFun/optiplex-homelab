@@ -63,12 +63,10 @@ Skriptet är en **fullfjädrad wizard** som:
 - Hanterar saknade tokens graceful (installerar men väntar med start)
 
 ```bash
-# SSH:a in på din Proxmox-nod och kör:
-cd /tmp && git clone https://github.com/ToFinToFun/optiplex-homelab.git
-cd optiplex-homelab/scripts
-bash setup.sh
+# SSH:a in på din Proxmox-nod och kör (ett enda kommando):
+bash <(curl -fsSL https://raw.githubusercontent.com/ToFinToFun/optiplex-homelab/master/scripts/bootstrap.sh)
 ```
-*(Skriptet ställer frågorna interaktivt. Vill du slippa svara kan du kopiera `setup.env.example` till `setup.env` först).*
+*(Bootstrappern installerar eventuella saknade beroenden, laddar ner repot och startar wizarden automatiskt. Vill du slippa svara interaktivt kan du kopiera `setup.env.example` till `setup.env` först).*
 
 #### Fler verktyg
 - `bash tools/status.sh` — Health-check som visar status för alla tjänster, iGPU och lagring.
