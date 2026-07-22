@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 source lib/ui.sh
 source lib/config.sh
+source lib/proxmox.sh
 
 # ============================================================
 # Proxmox Host Konfiguration
@@ -36,66 +37,12 @@ apt-get update -qq 2>&1 | grep -v "^$" || true
 # ============================================================
 
 # ============================================================
-# BIOS VERIFIERING (körs ALLTID — visar aktuell status)
+# BIOS VERIFIERING (använder delad funktion från lib/proxmox.sh)
 # ============================================================
-echo "" > /dev/tty
-echo -e "  ${BOLD}── BIOS & Hårdvarustatus ──${NC}" > /dev/tty
-echo "" > /dev/tty
-
-BIOS_ISSUES=0
-
-# VT-x
-if grep -c -E '(vmx|svm)' /proc/cpuinfo > /dev/null 2>&1; then
-    echo -e "  ${GREEN}✓${NC} VT-x (Virtualisering) — aktiverat" > /dev/tty
-else
-    echo -e "  ${RED}✗${NC} VT-x (Virtualisering) — EJ aktiverat" > /dev/tty
-    BIOS_ISSUES=$((BIOS_ISSUES + 1))
-fi
-
-# VT-d / IOMMU
-if dmesg 2>/dev/null | grep -i -q -e "DMAR" -e "IOMMU"; then
-    echo -e "  ${GREEN}✓${NC} VT-d (IOMMU/Passthrough) — aktiverat" > /dev/tty
-else
-    echo -e "  ${RED}✗${NC} VT-d (IOMMU/Passthrough) — EJ aktiverat" > /dev/tty
-    BIOS_ISSUES=$((BIOS_ISSUES + 1))
-fi
-
-# iGPU
-if [ -e /dev/dri/renderD128 ]; then
-    VAAPI_INFO=""
-    if command -v vainfo &>/dev/null; then
-        VAAPI_INFO=$(vainfo 2>/dev/null | grep "vainfo: Driver" | head -1 | sed 's/.*: //')
-    fi
-    echo -e "  ${GREEN}✓${NC} Intel iGPU — hittad (/dev/dri/renderD128) ${VAAPI_INFO:+[$VAAPI_INFO]}" > /dev/tty
-else
-    echo -e "  ${RED}✗${NC} Intel iGPU — EJ hittad" > /dev/tty
-    BIOS_ISSUES=$((BIOS_ISSUES + 1))
-fi
-
-# WoL
-PRIMARY_NIC_CHECK=$(ip route show default 2>/dev/null | awk '/default/{print $5}' | head -1)
-if [ -n "$PRIMARY_NIC_CHECK" ] && command -v ethtool &>/dev/null; then
-    WOL_CHECK=$(ethtool "$PRIMARY_NIC_CHECK" 2>/dev/null | grep "Wake-on:" | tail -1 | awk '{print $2}')
-    if echo "$WOL_CHECK" | grep -q "g"; then
-        echo -e "  ${GREEN}✓${NC} Wake-on-LAN — aktiverat ($PRIMARY_NIC_CHECK)" > /dev/tty
-    else
-        echo -e "  ${YELLOW}⚠${NC} Wake-on-LAN — EJ aktiverat" > /dev/tty
-    fi
-fi
-
-# TRIM
-if systemctl is-active fstrim.timer &>/dev/null; then
-    echo -e "  ${GREEN}✓${NC} SSD TRIM — aktiverat (veckovis)" > /dev/tty
-else
-    echo -e "  ${YELLOW}⚠${NC} SSD TRIM — ej aktiverat" > /dev/tty
-fi
-
-echo "" > /dev/tty
+show_bios_status
 
 # Beslut baserat på status
 if [ $BIOS_ISSUES -eq 0 ]; then
-    msg_ok "Alla kritiska BIOS-inställningar verifierade!"
-    
     if [ "$(get_state bios_configured)" == "true" ]; then
         # Redan konfigurerat och allt fungerar
         if ask_yes_no "Vill du köra BIOS-konfiguration ändå (t.ex. ändra enskild inställning)?" "N"; then

@@ -87,3 +87,71 @@ find_extra_disks() {
     done
     echo "$extra_disks"
 }
+
+# ============================================================
+# BIOS & Hårdvarustatus — visar ✓/✗ för kritiska inställningar
+# Returnerar antal problem via BIOS_ISSUES (global)
+# ============================================================
+show_bios_status() {
+    echo "" > /dev/tty
+    echo -e "  ${BOLD}── BIOS & Hårdvarustatus ──${NC}" > /dev/tty
+    echo "" > /dev/tty
+
+    BIOS_ISSUES=0
+
+    # VT-x
+    if grep -c -E '(vmx|svm)' /proc/cpuinfo > /dev/null 2>&1; then
+        echo -e "  ${GREEN}✓${NC} VT-x (Virtualisering) — aktiverat" > /dev/tty
+    else
+        echo -e "  ${RED}✗${NC} VT-x (Virtualisering) — EJ aktiverat" > /dev/tty
+        BIOS_ISSUES=$((BIOS_ISSUES + 1))
+    fi
+
+    # VT-d / IOMMU
+    if dmesg 2>/dev/null | grep -i -q -e "DMAR" -e "IOMMU"; then
+        echo -e "  ${GREEN}✓${NC} VT-d (IOMMU/Passthrough) — aktiverat" > /dev/tty
+    else
+        echo -e "  ${RED}✗${NC} VT-d (IOMMU/Passthrough) — EJ aktiverat" > /dev/tty
+        BIOS_ISSUES=$((BIOS_ISSUES + 1))
+    fi
+
+    # iGPU
+    if [ -e /dev/dri/renderD128 ]; then
+        local VAAPI_INFO=""
+        if command -v vainfo &>/dev/null; then
+            VAAPI_INFO=$(vainfo 2>/dev/null | grep "vainfo: Driver" | head -1 | sed 's/.*: //')
+        fi
+        echo -e "  ${GREEN}✓${NC} Intel iGPU — hittad (/dev/dri/renderD128) ${VAAPI_INFO:+[$VAAPI_INFO]}" > /dev/tty
+    else
+        echo -e "  ${RED}✗${NC} Intel iGPU — EJ hittad" > /dev/tty
+        BIOS_ISSUES=$((BIOS_ISSUES + 1))
+    fi
+
+    # WoL
+    local PRIMARY_NIC_CHECK
+    PRIMARY_NIC_CHECK=$(ip route show default 2>/dev/null | awk '/default/{print $5}' | head -1)
+    if [ -n "$PRIMARY_NIC_CHECK" ] && command -v ethtool &>/dev/null; then
+        local WOL_CHECK
+        WOL_CHECK=$(ethtool "$PRIMARY_NIC_CHECK" 2>/dev/null | grep "Wake-on:" | tail -1 | awk '{print $2}')
+        if echo "$WOL_CHECK" | grep -q "g"; then
+            echo -e "  ${GREEN}✓${NC} Wake-on-LAN — aktiverat ($PRIMARY_NIC_CHECK)" > /dev/tty
+        else
+            echo -e "  ${YELLOW}⚠${NC} Wake-on-LAN — EJ aktiverat" > /dev/tty
+        fi
+    fi
+
+    # TRIM
+    if systemctl is-active fstrim.timer &>/dev/null; then
+        echo -e "  ${GREEN}✓${NC} SSD TRIM — aktiverat (veckovis)" > /dev/tty
+    else
+        echo -e "  ${YELLOW}⚠${NC} SSD TRIM — ej aktiverat" > /dev/tty
+    fi
+
+    echo "" > /dev/tty
+
+    if [ $BIOS_ISSUES -eq 0 ]; then
+        msg_ok "Alla kritiska BIOS-inställningar verifierade!"
+    else
+        msg_warn "$BIOS_ISSUES kritisk(a) inställning(ar) saknas — kan fixas i steg 1 (Proxmox Host)."
+    fi
+}
