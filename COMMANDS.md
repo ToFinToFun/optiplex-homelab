@@ -65,6 +65,19 @@ Frågar innan varje borttagning.
 cd /opt/optiplex-homelab/scripts && bash tools/uninstall.sh
 
 
+FRESH START (radera ALLT och börja om från scratch)
+───────────────────────────────────────────────────
+Raderar ALLA containers/VMs, config, state och repot.
+Klonar om från GitHub utan cache och startar wizarden.
+Som att köra på en helt färsk Proxmox-installation.
+
+  Från installerat repo:
+  cd /opt/optiplex-homelab/scripts && bash tools/fresh-start.sh
+
+  Direkt one-liner (fungerar även om repot är trasigt):
+  bash <(curl -fsSL "https://raw.githubusercontent.com/ToFinToFun/optiplex-homelab/master/scripts/tools/fresh-start.sh?v=$(date +%s)")
+
+
 VISA INSTALLATIONSLOGGEN (vid problem)
 ──────────────────────────────────────
 Visar vad som hände under installationen,
