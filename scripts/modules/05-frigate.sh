@@ -58,8 +58,21 @@ msg_info "Installerar Docker och Intel drivrutiner..."
 pct exec "${IP_FRIGATE}" -- bash -c "apt-get update -qq > /dev/null 2>&1"
 pct exec "${IP_FRIGATE}" -- bash -c "apt-get install -y -qq curl ca-certificates gnupg > /dev/null 2>&1"
 
-# Intel media driver — Debian 13 använder 'intel-media-driver', äldre versioner 'intel-media-va-driver-non-free'
-pct exec "${IP_FRIGATE}" -- bash -c "apt-get install -y -qq intel-media-va-driver-non-free vainfo > /dev/null 2>&1 || apt-get install -y -qq intel-media-driver vainfo > /dev/null 2>&1" || \
+# Aktivera non-free och non-free-firmware repos (krävs för Intel VA-driver)
+msg_info "Aktiverar non-free repos för Intel GPU-driver..."
+pct exec "${IP_FRIGATE}" -- bash -c "
+    if [ -f /etc/apt/sources.list ]; then
+        sed -i 's/main$/main contrib non-free non-free-firmware/' /etc/apt/sources.list
+    fi
+    # DEB822-format (Debian 13 default)
+    if [ -f /etc/apt/sources.list.d/debian.sources ]; then
+        sed -i 's/^Components: main$/Components: main contrib non-free non-free-firmware/' /etc/apt/sources.list.d/debian.sources
+    fi
+"
+pct exec "${IP_FRIGATE}" -- bash -c "apt-get update -qq > /dev/null 2>&1"
+
+# Intel media driver (non-free)
+pct exec "${IP_FRIGATE}" -- bash -c "apt-get install -y -qq intel-media-va-driver-non-free vainfo > /dev/null 2>&1" || \
     msg_warn "Intel VA-driver kunde inte installeras (kan läggas till manuellt senare)"
 
 # Docker installation
