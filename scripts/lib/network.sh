@@ -91,6 +91,7 @@ confirm_network() {
     if ask_yes_no "Stämmer detta?" "Y"; then
         # Exportera till variabler som setup.sh använder
         NETWORK_PREFIX="$DETECTED_PREFIX"
+        NETWORK_CIDR="$DETECTED_CIDR"
         GATEWAY="$DETECTED_GATEWAY"
         return 0
     else

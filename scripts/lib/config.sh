@@ -19,6 +19,7 @@ save_config() {
 # Genererad av setup.sh — redigera inte manuellt om du inte vet vad du gör.
 NODE_HOSTNAME="${NODE_HOSTNAME:-homelab}"
 NETWORK_PREFIX="${NETWORK_PREFIX}"
+NETWORK_CIDR="${NETWORK_CIDR:-24}"
 GATEWAY="${GATEWAY}"
 IP_HA="${IP_HA:-100}"
 IP_CLOUDFLARED="${IP_CLOUDFLARED:-101}"
