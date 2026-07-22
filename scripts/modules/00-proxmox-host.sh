@@ -132,53 +132,81 @@ Detta ställer in ALLA inställningar optimalt:
             mkdir -p "$DCC_DIR"
             tar -xzf "$DCC_TGZ" -C "$DCC_DIR" 2>/dev/null
             
-            # Hitta ALLA .deb-filer (srvadmin-hapi + command-configure)
-            DCC_DEBS=$(find "$DCC_DIR" -name "*.deb" -type f | sort)
+            # Hitta .deb-filer (srvadmin-hapi + command-configure)
+            HAPI_DEB=$(find "$DCC_DIR" -name "srvadmin-hapi*" -name "*.deb" -type f | head -1)
+            DCC_DEB=$(find "$DCC_DIR" -name "command-configure*" -name "*.deb" -type f | head -1)
             
-            if [ -n "$DCC_DEBS" ]; then
-                # Installera beroenden
-                apt-get install -y libssl3 > /dev/null 2>&1 || true
+            if [ -z "$HAPI_DEB" ] && [ -z "$DCC_DEB" ]; then
+                msg_err "Kunde inte hitta .deb-filer i arkivet."
+                msg_info "Du kan ställa in BIOS manuellt — se docs/01-bios-setup.md"
+            else
+                # Steg 1: Installera beroenden
+                msg_info "Installerar beroenden (libsmbios, pciutils, openssl)..."
+                apt-get install -y libsmbios-dev pciutils openssl > /dev/null 2>&1 || true
                 
-                # Installera ALLA .deb-paket (ordning: srvadmin-hapi först, sedan DCC)
-                # srvadmin-hapi tillhandahåller libdchbas.so som DCC behöver
-                HAPI_DEB=$(echo "$DCC_DEBS" | grep -i "srvadmin-hapi" | head -1)
-                DCC_DEB=$(echo "$DCC_DEBS" | grep -i "command-configure" | head -1)
-                
+                # Steg 2: Installera srvadmin-hapi FÖRST (ger libdchbas.so.9)
+                # Känt problem: postinst-scriptet kan misslyckas (instsvcdrv.service)
+                # Lösning: skapa en dummy-postinst som workaround
                 INSTALL_OK=true
                 
-                # Installera HAPI först (ger libdchbas.so)
                 if [ -n "$HAPI_DEB" ]; then
-                    if ! dpkg -i "$HAPI_DEB" > /dev/null 2>&1; then
-                        apt-get install -f -y > /dev/null 2>&1
-                        dpkg -i "$HAPI_DEB" > /dev/null 2>&1 || true
+                    msg_info "Installerar srvadmin-hapi (HAPI driver)..."
+                    if ! dpkg -i "$HAPI_DEB" 2>&1 | tail -5; then
+                        # Känd fix: postinst misslyckas p.g.a. instsvcdrv.service
+                        # Skapa dummy-postinst och kör configure igen
+                        msg_warn "HAPI postinst misslyckades (känt problem) — applicerar workaround..."
+                        cat > /var/lib/dpkg/info/srvadmin-hapi.postinst << 'POSTINST'
+#!/bin/bash
+# Workaround: instsvcdrv.service not needed on Proxmox
+/bin/true
+POSTINST
+                        chmod +x /var/lib/dpkg/info/srvadmin-hapi.postinst
+                        dpkg --configure -a > /dev/null 2>&1
+                        # Verifiera att filerna faktiskt installerades
+                        if [ -f /opt/dell/srvadmin/lib64/libdchbas.so.9 ] || \
+                           find /opt/dell -name "libdchbas.so*" 2>/dev/null | grep -q .; then
+                            msg_ok "srvadmin-hapi installerat (med workaround)"
+                        else
+                            # Tvinga ominstallation
+                            dpkg -i --force-confnew "$HAPI_DEB" > /dev/null 2>&1 || true
+                            dpkg --configure -a > /dev/null 2>&1
+                        fi
+                    else
+                        msg_ok "srvadmin-hapi installerat"
                     fi
+                    apt-get install -f -y > /dev/null 2>&1 || true
                 fi
                 
-                # Installera DCC
+                # Steg 3: Installera command-configure (cctk)
                 if [ -n "$DCC_DEB" ]; then
-                    if ! dpkg -i "$DCC_DEB" > /dev/null 2>&1; then
+                    msg_info "Installerar Dell Command Configure (cctk)..."
+                    if dpkg -i "$DCC_DEB" > /dev/null 2>&1; then
+                        msg_ok "Dell Command Configure installerat"
+                    else
                         apt-get install -f -y > /dev/null 2>&1
-                        if ! dpkg -i "$DCC_DEB" > /dev/null 2>&1; then
+                        if dpkg -i "$DCC_DEB" > /dev/null 2>&1; then
+                            msg_ok "Dell Command Configure installerat (med fixade beroenden)"
+                        else
+                            msg_err "Kunde inte installera Dell Command Configure."
                             INSTALL_OK=false
                         fi
                     fi
-                else
-                    # Fallback: installera alla debs i ordning
-                    for deb in $DCC_DEBS; do
-                        dpkg -i "$deb" > /dev/null 2>&1 || true
-                    done
-                    apt-get install -f -y > /dev/null 2>&1
                 fi
                 
+                # Steg 4: Kör ldconfig så systemet hittar de nya biblioteken
+                ldconfig 2>/dev/null || true
+                
+                # Steg 5: Verifiera att libdchbas.so hittas
                 if [ "$INSTALL_OK" == "true" ]; then
-                    msg_ok "Dell Command Configure installerat"
+                    MISSING_LIBS=$(ldd /opt/dell/dcc/cctk 2>/dev/null | grep "not found" || true)
+                    if [ -n "$MISSING_LIBS" ]; then
+                        msg_warn "Saknade bibliotek efter installation:"
+                        echo "$MISSING_LIBS" | head -5
+                        msg_info "Försöker fixa med LD_LIBRARY_PATH..."
+                    fi
                 else
-                    msg_err "Kunde inte installera Dell Command Configure."
                     msg_info "Du kan ställa in BIOS manuellt — se docs/01-bios-setup.md"
                 fi
-            else
-                msg_err "Kunde inte hitta .deb-fil i arkivet."
-                msg_info "Du kan ställa in BIOS manuellt — se docs/01-bios-setup.md"
             fi
             
             # Städa upp
@@ -199,15 +227,30 @@ Detta ställer in ALLA inställningar optimalt:
     fi
     
     if [ -n "$CCTK" ] && [ -x "$CCTK" ]; then
-        # Sätt LD_LIBRARY_PATH så att cctk hittar libdchbas.so och andra DCC-bibliotek
+        # Säkerställ att systemet hittar DCC-biblioteken
+        # 1. Skapa persistent ld.so.conf.d-fil (så ldconfig hittar dem)
+        if [ -d /opt/dell/dcc ] && [ ! -f /etc/ld.so.conf.d/dell-dcc.conf ]; then
+            echo "/opt/dell/dcc" > /etc/ld.so.conf.d/dell-dcc.conf
+            # Lägg till srvadmin-lib64 om den finns
+            [ -d /opt/dell/srvadmin/lib64 ] && echo "/opt/dell/srvadmin/lib64" >> /etc/ld.so.conf.d/dell-dcc.conf
+            ldconfig 2>/dev/null || true
+        fi
+        
+        # 2. Sätt LD_LIBRARY_PATH som fallback för denna session
         export LD_LIBRARY_PATH="/opt/dell/dcc:/opt/dell/srvadmin/lib64:${LD_LIBRARY_PATH:-}"
         
         # Snabbtest: kan cctk köras?
         if ! $CCTK --version &>/dev/null && ! $CCTK --help &>/dev/null; then
-            msg_err "cctk kunde inte köras (saknar bibliotek eller stöds ej på denna hårdvara)."
-            msg_info "Kontrollera: ldd $CCTK"
+            msg_err "cctk kunde inte köras."
+            # Visa diagnostik
+            msg_info "Diagnostik:"
+            ldd "$CCTK" 2>/dev/null | grep "not found" | while read -r line; do
+                echo "    $line"
+            done
             msg_info "Du kan ställa in BIOS manuellt — se docs/01-bios-setup.md"
             CCTK=""  # Avbryt BIOS-konfiguration
+        else
+            msg_ok "cctk verifierat — redo att konfigurera BIOS"
         fi
     fi
     
