@@ -111,6 +111,8 @@ services:
         target: /tmp/cache
         tmpfs:
           size: 1000000000
+    environment:
+      - FRIGATE_GEMINI_API_KEY=${FRIGATE_GEMINI_API_KEY:-}
     ports:
       - "8971:8971"
       - "5000:5000"
@@ -150,6 +152,13 @@ record:
 
 snapshots:
   enabled: true
+
+# Generativ AI (valfritt) — avkommentera och lägg till din API-nyckel
+# i docker-compose.yml (FRIGATE_GEMINI_API_KEY) för att aktivera.
+# genai:
+#   provider: gemini
+#   api_key: "{FRIGATE_GEMINI_API_KEY}"
+#   model: gemini-2.5-flash
 
 cameras:
   dummy_camera:

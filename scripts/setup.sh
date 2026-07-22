@@ -208,12 +208,17 @@ if load_config; then
         fi
         
         # Google AI API Key (valfritt — för Frigate 0.18+ generativ AI)
-        echo -e "  ${CYAN}○${NC} ${BOLD}Google AI API Key${NC} — valfritt (generativ AI i Frigate 0.18+)" > /dev/tty
-        echo -e "    ${DIM}Ger: Sökbar beskrivning av händelser, semantic search, AI-sammanfattningar.${NC}" > /dev/tty
+        echo -e "  ${CYAN}○${NC} ${BOLD}Google Gemini API Key${NC} — valfritt (generativ AI i Frigate 0.18+)" > /dev/tty
+        echo -e "    ${DIM}Ger: AI-beskrivningar av händelser, semantic search, sammanfattningar.${NC}" > /dev/tty
         echo -e "    ${DIM}Frigate fungerar utan detta — du kan lägga till det när som helst.${NC}" > /dev/tty
-        echo -e "    ${CYAN}Skapa:${NC} https://aistudio.google.com/apikey" > /dev/tty
-        echo -e "    ${CYAN}Lägg till:${NC} Redigera docker-compose.yml, lägg till GEMINI_API_KEY=<nyckel>" > /dev/tty
-        echo -e "    ${CYAN}Konfigurera:${NC} Lägg till genai-block i Frigates config.yml (se docs)" > /dev/tty
+        echo -e "    ${CYAN}Skapa nyckel:${NC} https://aistudio.google.com/api-keys" > /dev/tty
+        echo -e "    ${CYAN}Steg:${NC}  Accept ToS → Get API Key → Create API key → Kopiera" > /dev/tty
+        echo -e "    ${CYAN}Lägg till:${NC} docker-compose.yml → environment → FRIGATE_GEMINI_API_KEY=<nyckel>" > /dev/tty
+        echo -e "    ${CYAN}config.yml:${NC}" > /dev/tty
+        echo -e "      ${DIM}genai:${NC}" > /dev/tty
+        echo -e "      ${DIM}  provider: gemini${NC}" > /dev/tty
+        echo -e "      ${DIM}  api_key: \"{FRIGATE_GEMINI_API_KEY}\"${NC}" > /dev/tty
+        echo -e "      ${DIM}  model: gemini-2.5-flash${NC}" > /dev/tty
         echo "" > /dev/tty
         
         echo -e "  ${DIM}────────────────────────────────────────────────────────────${NC}" > /dev/tty
