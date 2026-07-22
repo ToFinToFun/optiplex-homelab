@@ -168,15 +168,63 @@ msg_header "Konfiguration"
 if load_config; then
     msg_ok "Hittade befintlig konfiguration (setup.env)"
     
-    # Vid omkörning: erbjud att lägga till tunnel-token om den saknas
+    # ══════════════════════════════════════════════════════════
+    # CHECKLISTA: Vad saknas / vad kan aktiveras?
+    # ══════════════════════════════════════════════════════════
+    MISSING_COUNT=0
+    
+    # Kolla vad som saknas
+    [ -z "$CF_TUNNEL_TOKEN" ] && MISSING_COUNT=$((MISSING_COUNT + 1))
+    [ "$(get_state cfdns_configured)" != "true" ] && MISSING_COUNT=$((MISSING_COUNT + 1))
+    
+    if [ $MISSING_COUNT -gt 0 ]; then
+        echo "" > /dev/tty
+        echo -e "  ${YELLOW}${BOLD}╔════════════════════════════════════════════════════════════╗${NC}" > /dev/tty
+        echo -e "  ${YELLOW}${BOLD}║${NC} ${BOLD}Saker som fortfarande behöver konfigureras:${NC}              ${YELLOW}${BOLD}║${NC}" > /dev/tty
+        echo -e "  ${YELLOW}${BOLD}╚════════════════════════════════════════════════════════════╝${NC}" > /dev/tty
+        echo "" > /dev/tty
+        
+        # 1. Tunnel Token
+        if [ -z "$CF_TUNNEL_TOKEN" ]; then
+            echo -e "  ${RED}✗${NC} ${BOLD}Cloudflare Tunnel Token${NC} — krävs för extern åtkomst" > /dev/tty
+            echo -e "    ${DIM}Utan denna fungerar INTE ha.dindomän.se, frigate.dindomän.se etc.${NC}" > /dev/tty
+            echo -e "    ${CYAN}Skapa:${NC} https://one.dash.cloudflare.com → Networks → Tunnels" > /dev/tty
+            echo -e "    ${CYAN}Steg:${NC}  Create Tunnel → Döp den → Kopiera token (börjar med eyJh...)" > /dev/tty
+            echo "" > /dev/tty
+        fi
+        
+        # 2. Cloudflare DNS (API token + domän + tunnel UUID)
+        if [ "$(get_state cfdns_configured)" != "true" ]; then
+            echo -e "  ${RED}✗${NC} ${BOLD}Cloudflare DNS & Zero Trust${NC} — krävs för automatisk DNS-routing" > /dev/tty
+            echo -e "    ${DIM}Skapar DNS-poster (ha.domän.se → tunnel) och Zero Trust-skydd.${NC}" > /dev/tty
+            echo -e "    ${CYAN}Du behöver:${NC}" > /dev/tty
+            echo -e "      1. Din domän (t.ex. dindomän.se — måste vara Active i Cloudflare)" > /dev/tty
+            echo -e "      2. Tunnel UUID (synlig i Zero Trust → Tunnels → din tunnel)" > /dev/tty
+            echo -e "      3. API Token med behörigheter:" > /dev/tty
+            echo -e "         ${DIM}Zone:DNS:Edit + Account:Cloudflare Tunnel:Edit + Account:Access:Edit${NC}" > /dev/tty
+            echo -e "    ${CYAN}Skapa API Token:${NC} https://dash.cloudflare.com/profile/api-tokens" > /dev/tty
+            echo -e "    ${CYAN}Fullständig guide:${NC} docs/10-cloudflare-api-setup.md" > /dev/tty
+            echo "" > /dev/tty
+        fi
+        
+        # Frigate+ (alltid visa som optional)
+        echo -e "  ${CYAN}○${NC} ${BOLD}Frigate+ API Key${NC} — valfritt (förbättrad AI-detektering)" > /dev/tty
+        echo -e "    ${DIM}Frigate fungerar utan detta (använder standard OpenVINO-modeller).${NC}" > /dev/tty
+        echo -e "    ${DIM}Med Frigate+ kan du träna egna modeller för bättre precision.${NC}" > /dev/tty
+        echo -e "    ${CYAN}Skapa:${NC} https://plus.frigate.video → Account → API Key" > /dev/tty
+        echo -e "    ${CYAN}Lägg till:${NC} Redigera docker-compose.yml, lägg till PLUS_API_KEY=<nyckel>" > /dev/tty
+        echo "" > /dev/tty
+        
+        echo -e "  ${DIM}────────────────────────────────────────────────────────────${NC}" > /dev/tty
+        echo -e "  ${DIM}Tips: Du kan hoppa över allt nu och aktivera senare genom att${NC}" > /dev/tty
+        echo -e "  ${DIM}köra wizarden igen: cd /opt/optiplex-homelab/scripts && bash setup.sh${NC}" > /dev/tty
+        echo "" > /dev/tty
+    fi
+    
+    # Erbjud att lägga till tunnel-token om den saknas
     if [ -z "$CF_TUNNEL_TOKEN" ]; then
-        echo "" > /dev/tty
-        msg_warn "Cloudflare Tunnel-token saknas i konfigurationen."
-        echo -e "  ${CYAN}Utan token fungerar INTE extern åtkomst (ha.dindomän.se etc).${NC}" > /dev/tty
-        echo -e "  ${CYAN}Skapa token: https://one.dash.cloudflare.com → Networks → Tunnels${NC}" > /dev/tty
-        echo "" > /dev/tty
-        if ask_yes_no "Vill du lägga till en Cloudflare Tunnel-token nu?" "N"; then
-            CF_TUNNEL_TOKEN=$(ask_string "Cloudflare Tunnel Token" "")
+        if ask_yes_no "Har du en Cloudflare Tunnel-token att lägga till nu?" "N"; then
+            CF_TUNNEL_TOKEN=$(ask_string "Cloudflare Tunnel Token (börjar med eyJh...)" "")
             if [ -n "$CF_TUNNEL_TOKEN" ]; then
                 save_config
                 chmod 600 setup.env 2>/dev/null
