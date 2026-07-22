@@ -7,25 +7,47 @@ source lib/proxmox.sh
 # Proxmox Host Konfiguration
 # ============================================================
 
-# --- Repos ---
+# --- Repos (PVE 9 / Debian 13 Trixie — DEB822-format) ---
 msg_info "Konfigurerar Proxmox Repositories..."
-
-# Detektera codename
 CODENAME=$(grep VERSION_CODENAME /etc/os-release 2>/dev/null | cut -d= -f2)
-CODENAME="${CODENAME:-bookworm}"
+CODENAME="${CODENAME:-trixie}"
 
-# Ta bort enterprise repo
+# Avaktivera enterprise-repos (DEB822-format på PVE 9)
+if [ -f /etc/apt/sources.list.d/pve-enterprise.sources ]; then
+    if ! grep -q "Enabled: false" /etc/apt/sources.list.d/pve-enterprise.sources; then
+        echo 'Enabled: false' >> /etc/apt/sources.list.d/pve-enterprise.sources
+        msg_ok "Avaktiverade pve-enterprise repo"
+    fi
+fi
+# Fallback: ta bort gammal .list-fil om den finns (PVE 8-uppgradering)
 rm -f /etc/apt/sources.list.d/pve-enterprise.list 2>/dev/null
 
-# Lägg till no-subscription repo om det saknas
-if ! grep -q "pve-no-subscription" /etc/apt/sources.list 2>/dev/null && \
-   ! find /etc/apt/sources.list.d/ -name "*.list" -name "*.sources" -exec grep -l "pve-no-subscription" {} \; 2>/dev/null | grep -q .; then
-    echo "deb http://download.proxmox.com/debian/pve ${CODENAME} pve-no-subscription" >> /etc/apt/sources.list
-    msg_ok "La till pve-no-subscription repo"
+# Lägg till no-subscription repo (DEB822-format)
+NO_SUB_FILE="/etc/apt/sources.list.d/pve-no-subscription.sources"
+if [ ! -f "$NO_SUB_FILE" ]; then
+    # Kolla att det inte redan finns i någon annan fil
+    if ! grep -rq "pve-no-subscription" /etc/apt/sources.list.d/ 2>/dev/null && \
+       ! grep -q "pve-no-subscription" /etc/apt/sources.list 2>/dev/null; then
+        cat > "$NO_SUB_FILE" << EOF
+Types: deb
+URIs: http://download.proxmox.com/debian/pve
+Suites: ${CODENAME}
+Components: pve-no-subscription
+Signed-By: /usr/share/keyrings/proxmox-archive-keyring.gpg
+EOF
+        msg_ok "La till pve-no-subscription repo (DEB822)"
+    fi
 fi
 
-# Fixa ceph repo
-if [ -f /etc/apt/sources.list.d/ceph.list ]; then
+# Fixa ceph repo (DEB822-format på PVE 9)
+if [ -f /etc/apt/sources.list.d/ceph.sources ]; then
+    if grep -q "enterprise.proxmox.com" /etc/apt/sources.list.d/ceph.sources; then
+        sed -i 's|https://enterprise.proxmox.com/debian/|http://download.proxmox.com/debian/|g' /etc/apt/sources.list.d/ceph.sources
+        sed -i 's/enterprise/no-subscription/g' /etc/apt/sources.list.d/ceph.sources
+        msg_ok "Bytte ceph-repo till no-subscription"
+    fi
+# Fallback: gammal .list-fil
+elif [ -f /etc/apt/sources.list.d/ceph.list ]; then
     sed -i 's/enterprise/no-subscription/g' /etc/apt/sources.list.d/ceph.list
 fi
 
