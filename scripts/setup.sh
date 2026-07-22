@@ -123,6 +123,42 @@ fi
 msg_ok "Körs som root på Proxmox"
 
 # ==========================================
+# 1b. BIOS & Hårdvarustatus (visas ALLTID först)
+# ==========================================
+CURRENT_STEP=$((CURRENT_STEP + 1))
+show_progress $CURRENT_STEP $TOTAL_STEPS "BIOS & Hårdvara"
+msg_header "BIOS & Hårdvarustatus"
+
+show_bios_status
+
+# Erbjud BIOS-konfiguration direkt om problem hittades OCH host inte är konfigurerad
+if [ $BIOS_ISSUES -gt 0 ] && [ "$(get_state host_configured)" != "true" ]; then
+    echo "" > /dev/tty
+    if ask_yes_no "Vill du konfigurera Proxmox Host nu (BIOS, repos, TRIM, udev)?" "Y"; then
+        if [ "$DRY_RUN" == "true" ]; then
+            msg_dry "Skulle konfigurera repos, TRIM, udev, BIOS"
+        else
+            bash modules/00-proxmox-host.sh
+            set_state host_configured true
+            
+            # Om BIOS ändrades behövs reboot — erbjud det
+            if [ "$(get_state needs_reboot)" == "true" ]; then
+                echo "" > /dev/tty
+                msg_warn "BIOS-ändringar kräver omstart för att träda i kraft."
+                if ask_yes_no "Vill du starta om nu? (Kör setup.sh igen efter omstart)" "Y"; then
+                    msg_info "Startar om om 5 sekunder..."
+                    msg_info "Efter omstart, kör: cd /opt/optiplex-homelab/scripts && bash setup.sh"
+                    sleep 5
+                    reboot
+                fi
+            fi
+        fi
+    fi
+elif [ $BIOS_ISSUES -eq 0 ]; then
+    msg_ok "Hårdvaran är redo — fortsätter med konfiguration."
+fi
+
+# ==========================================
 # 2. Konfiguration Phase
 # ==========================================
 CURRENT_STEP=$((CURRENT_STEP + 1))
@@ -413,7 +449,7 @@ fi
 # 4.2 Proxmox Host
 CURRENT_STEP=$((CURRENT_STEP + 1))
 show_progress $CURRENT_STEP $TOTAL_STEPS "Proxmox Host"
-if [ "$DO_HOST" == "y" ]; then
+if [ "$DO_HOST" == "y" ] && [ "$(get_state host_configured)" != "true" ]; then
     print_banner "Proxmox Host Konfiguration" "Verifierar BIOS, fixar repos, aktiverar TRIM, sätter udev-regler för iGPU."
     if [ "$DRY_RUN" == "true" ]; then
         msg_dry "Skulle konfigurera repos, TRIM, udev, BIOS"
@@ -427,6 +463,8 @@ if [ "$DO_HOST" == "y" ]; then
             bash tools/upgrade-proxmox.sh
         fi
     fi
+elif [ "$(get_state host_configured)" == "true" ]; then
+    msg_ok "Proxmox Host redan konfigurerad (BIOS, repos, TRIM, udev) — hoppar över"
 fi
 
 # Hämta template om vi behöver LXC
