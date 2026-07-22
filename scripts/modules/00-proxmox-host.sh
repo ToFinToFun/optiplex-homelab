@@ -159,50 +159,71 @@ Detta ställer in ALLA inställningar optimalt:
     msg_info "Installerar Dell Command Configure..."
     
     # Kolla om cctk redan finns
-    if command -v /opt/dell/dcc/cctk &>/dev/null; then
-        msg_ok "Dell Command Configure redan installerat"
-        CCTK="/opt/dell/dcc/cctk"
+    CCTK=""
+    for path in /opt/dell/dcc/cctk /opt/dell/toolkit/bin/cctk; do
+        if [ -x "$path" ]; then
+            CCTK="$path"
+            break
+        fi
+    done
+
+    if [ -n "$CCTK" ]; then
+        msg_ok "Dell Command Configure redan installerat ($CCTK)"
     else
-        # Ladda ner och installera DCC
-        DCC_URL="https://dl.dell.com/FOLDER12591988M/1/command-configure_4.13.0-7.ubuntu22_amd64.deb"
-        DCC_DEB="/tmp/dell-command-configure.deb"
+        # Ladda ner och installera DCC 5.1.0 (senaste med Ubuntu 22.04/24.04-stöd)
+        DCC_URL="https://dl.dell.com/FOLDER12705833M/1/command-configure_5.1.0-6.ubuntu22_amd64.tar.gz"
+        DCC_TGZ="/tmp/dell-command-configure.tar.gz"
+        DCC_DIR="/tmp/dell-command-configure"
         
-        msg_info "Laddar ner Dell Command Configure..."
-        if wget -q -O "$DCC_DEB" "$DCC_URL" 2>/dev/null; then
-            # Installera beroenden
-            apt-get install -y libssl3 > /dev/null 2>&1 || true
+        msg_info "Laddar ner Dell Command Configure 5.1.0..."
+        # Dell CDN kräver User-Agent header
+        if wget -q --user-agent="Mozilla/5.0 (X11; Linux x86_64)" -O "$DCC_TGZ" "$DCC_URL" 2>/dev/null; then
+            msg_ok "Nedladdning klar (2.3 MB)"
             
-            if dpkg -i "$DCC_DEB" > /dev/null 2>&1; then
-                apt-get install -f -y > /dev/null 2>&1 || true
-                msg_ok "Dell Command Configure installerat"
-            else
-                # Försök fixa beroenden
-                apt-get install -f -y > /dev/null 2>&1
+            # Extrahera tar.gz och hitta .deb-filen
+            rm -rf "$DCC_DIR"
+            mkdir -p "$DCC_DIR"
+            tar -xzf "$DCC_TGZ" -C "$DCC_DIR" 2>/dev/null
+            
+            DCC_DEB=$(find "$DCC_DIR" -name "*.deb" -type f | head -1)
+            
+            if [ -n "$DCC_DEB" ]; then
+                # Installera beroenden
+                apt-get install -y libssl3 > /dev/null 2>&1 || true
+                
                 if dpkg -i "$DCC_DEB" > /dev/null 2>&1; then
-                    msg_ok "Dell Command Configure installerat (med fixade beroenden)"
+                    apt-get install -f -y > /dev/null 2>&1 || true
+                    msg_ok "Dell Command Configure installerat"
                 else
-                    msg_err "Kunde inte installera Dell Command Configure."
-                    msg_info "Du kan ställa in BIOS manuellt — se docs/01-bios-setup.md"
-                    CCTK=""
+                    # Försök fixa beroenden
+                    apt-get install -f -y > /dev/null 2>&1
+                    if dpkg -i "$DCC_DEB" > /dev/null 2>&1; then
+                        msg_ok "Dell Command Configure installerat (med fixade beroenden)"
+                    else
+                        msg_err "Kunde inte installera Dell Command Configure."
+                        msg_info "Du kan ställa in BIOS manuellt — se docs/01-bios-setup.md"
+                    fi
                 fi
+            else
+                msg_err "Kunde inte hitta .deb-fil i arkivet."
+                msg_info "Du kan ställa in BIOS manuellt — se docs/01-bios-setup.md"
             fi
-            rm -f "$DCC_DEB"
+            
+            # Städa upp
+            rm -rf "$DCC_TGZ" "$DCC_DIR"
         else
             msg_err "Kunde inte ladda ner Dell Command Configure."
             msg_info "Kontrollera internetanslutningen eller ställ in BIOS manuellt."
             msg_info "Se docs/01-bios-setup.md för steg-för-steg-guide."
-            CCTK=""
         fi
         
-        # Hitta cctk
-        if [ -z "$CCTK" ]; then
-            for path in /opt/dell/dcc/cctk /opt/dell/toolkit/bin/cctk; do
-                if [ -x "$path" ]; then
-                    CCTK="$path"
-                    break
-                fi
-            done
-        fi
+        # Hitta cctk efter installation
+        for path in /opt/dell/dcc/cctk /opt/dell/toolkit/bin/cctk; do
+            if [ -x "$path" ]; then
+                CCTK="$path"
+                break
+            fi
+        done
     fi
     
     if [ -n "$CCTK" ] && [ -x "$CCTK" ]; then
