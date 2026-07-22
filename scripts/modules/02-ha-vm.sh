@@ -15,7 +15,7 @@ qm create $IP_HA \
     --net0 virtio,bridge=vmbr0 \
     --ostype l26 \
     --bios ovmf \
-    --efidisk0 ${STORAGE_POOL}:0,efitype=4m,pre-enrolled-keys=1 \
+    --efidisk0 ${STORAGE_POOL}:0,efitype=4m,pre-enrolled-keys=0 \
     --machine q35 \
     --agent 1
 
