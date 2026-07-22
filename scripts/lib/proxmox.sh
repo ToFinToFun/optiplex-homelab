@@ -35,8 +35,8 @@ get_debian_template() {
     fi
     
     if [ -z "$template" ]; then
-        msg_err "Ingen Debian LXC-template hittades i Proxmox repos!"
-        msg_info "Kör manuellt: pveam update && pveam available -section system | grep debian"
+        msg_err "Ingen Debian LXC-template hittades i Proxmox repos!" > /dev/tty
+        msg_info "Kör manuellt: pveam update && pveam available -section system | grep debian" > /dev/tty
         echo ""
         return
     fi
@@ -45,10 +45,10 @@ get_debian_template() {
     
     # Ladda ner om den inte redan finns
     if [ ! -f "/var/lib/vz/template/cache/$template_name" ]; then
-        msg_info "Laddar ner ${template_name} (tar en minut)..."
+        msg_info "Laddar ner ${template_name} (tar en minut)..." > /dev/tty
         if ! pveam download $storage "$template" > /dev/null 2>&1; then
-            msg_err "Nedladdning av template misslyckades!"
-            msg_info "Kontrollera internet: ping download.proxmox.com"
+            msg_err "Nedladdning av template misslyckades!" > /dev/tty
+            msg_info "Kontrollera internet: ping download.proxmox.com" > /dev/tty
             echo ""
             return
         fi
@@ -56,13 +56,13 @@ get_debian_template() {
     
     # Verifiera att filen faktiskt finns och inte är tom
     if [ ! -s "/var/lib/vz/template/cache/$template_name" ]; then
-        msg_err "Template-filen är tom eller korrupt: $template_name"
+        msg_err "Template-filen är tom eller korrupt: $template_name" > /dev/tty
         rm -f "/var/lib/vz/template/cache/$template_name"
         echo ""
         return
     fi
     
-    msg_ok "Template: $template_name"
+    msg_ok "Template: $template_name" > /dev/tty
     echo "${storage}:vztmpl/${template_name}"
 }
 

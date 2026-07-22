@@ -20,7 +20,7 @@ if ! pct create "${IP_FRIGATE}" "${TEMPLATE_PATH}" \
     --password "${SHARED_PASSWORD:-$CT_PASSWORD}" \
     --unprivileged 1 \
     --features nesting=1 2>&1; then
-    msg_error "Kunde inte skapa container ${IP_FRIGATE}. Se felmeddelande ovan."
+    msg_err "Kunde inte skapa container ${IP_FRIGATE}. Se felmeddelande ovan."
     return 1 2>/dev/null || exit 1
 fi
 

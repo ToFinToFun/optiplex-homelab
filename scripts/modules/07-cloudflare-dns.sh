@@ -22,7 +22,7 @@ echo -e "${CYAN}╚════════════════════�
 if ! ask_yes_no "Vill du sätta upp DNS och extern åtkomst nu?" "N"; then
     msg_skip "Hoppar över Cloudflare DNS/Zero Trust."
     echo -e "${YELLOW}Du kan köra detta steg senare genom att köra:${NC}"
-    echo -e "  ${GREEN}cd /tmp/optiplex-homelab/scripts && bash modules/07-cloudflare-dns.sh${NC}\n"
+    echo -e "  ${GREEN}cd /opt/optiplex-homelab/scripts && bash modules/07-cloudflare-dns.sh${NC}\n"
     exit 0
 fi
 

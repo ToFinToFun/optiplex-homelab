@@ -132,24 +132,49 @@ Detta ställer in ALLA inställningar optimalt:
             mkdir -p "$DCC_DIR"
             tar -xzf "$DCC_TGZ" -C "$DCC_DIR" 2>/dev/null
             
-            DCC_DEB=$(find "$DCC_DIR" -name "*.deb" -type f | head -1)
+            # Hitta ALLA .deb-filer (srvadmin-hapi + command-configure)
+            DCC_DEBS=$(find "$DCC_DIR" -name "*.deb" -type f | sort)
             
-            if [ -n "$DCC_DEB" ]; then
+            if [ -n "$DCC_DEBS" ]; then
                 # Installera beroenden
                 apt-get install -y libssl3 > /dev/null 2>&1 || true
                 
-                if dpkg -i "$DCC_DEB" > /dev/null 2>&1; then
-                    apt-get install -f -y > /dev/null 2>&1 || true
+                # Installera ALLA .deb-paket (ordning: srvadmin-hapi först, sedan DCC)
+                # srvadmin-hapi tillhandahåller libdchbas.so som DCC behöver
+                HAPI_DEB=$(echo "$DCC_DEBS" | grep -i "srvadmin-hapi" | head -1)
+                DCC_DEB=$(echo "$DCC_DEBS" | grep -i "command-configure" | head -1)
+                
+                INSTALL_OK=true
+                
+                # Installera HAPI först (ger libdchbas.so)
+                if [ -n "$HAPI_DEB" ]; then
+                    if ! dpkg -i "$HAPI_DEB" > /dev/null 2>&1; then
+                        apt-get install -f -y > /dev/null 2>&1
+                        dpkg -i "$HAPI_DEB" > /dev/null 2>&1 || true
+                    fi
+                fi
+                
+                # Installera DCC
+                if [ -n "$DCC_DEB" ]; then
+                    if ! dpkg -i "$DCC_DEB" > /dev/null 2>&1; then
+                        apt-get install -f -y > /dev/null 2>&1
+                        if ! dpkg -i "$DCC_DEB" > /dev/null 2>&1; then
+                            INSTALL_OK=false
+                        fi
+                    fi
+                else
+                    # Fallback: installera alla debs i ordning
+                    for deb in $DCC_DEBS; do
+                        dpkg -i "$deb" > /dev/null 2>&1 || true
+                    done
+                    apt-get install -f -y > /dev/null 2>&1
+                fi
+                
+                if [ "$INSTALL_OK" == "true" ]; then
                     msg_ok "Dell Command Configure installerat"
                 else
-                    # Försök fixa beroenden
-                    apt-get install -f -y > /dev/null 2>&1
-                    if dpkg -i "$DCC_DEB" > /dev/null 2>&1; then
-                        msg_ok "Dell Command Configure installerat (med fixade beroenden)"
-                    else
-                        msg_err "Kunde inte installera Dell Command Configure."
-                        msg_info "Du kan ställa in BIOS manuellt — se docs/01-bios-setup.md"
-                    fi
+                    msg_err "Kunde inte installera Dell Command Configure."
+                    msg_info "Du kan ställa in BIOS manuellt — se docs/01-bios-setup.md"
                 fi
             else
                 msg_err "Kunde inte hitta .deb-fil i arkivet."
@@ -171,6 +196,19 @@ Detta ställer in ALLA inställningar optimalt:
                 break
             fi
         done
+    fi
+    
+    if [ -n "$CCTK" ] && [ -x "$CCTK" ]; then
+        # Sätt LD_LIBRARY_PATH så att cctk hittar libdchbas.so och andra DCC-bibliotek
+        export LD_LIBRARY_PATH="/opt/dell/dcc:/opt/dell/srvadmin/lib64:${LD_LIBRARY_PATH:-}"
+        
+        # Snabbtest: kan cctk köras?
+        if ! $CCTK --version &>/dev/null && ! $CCTK --help &>/dev/null; then
+            msg_err "cctk kunde inte köras (saknar bibliotek eller stöds ej på denna hårdvara)."
+            msg_info "Kontrollera: ldd $CCTK"
+            msg_info "Du kan ställa in BIOS manuellt — se docs/01-bios-setup.md"
+            CCTK=""  # Avbryt BIOS-konfiguration
+        fi
     fi
     
     if [ -n "$CCTK" ] && [ -x "$CCTK" ]; then
