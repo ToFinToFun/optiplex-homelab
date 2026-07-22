@@ -207,12 +207,13 @@ if load_config; then
             echo "" > /dev/tty
         fi
         
-        # Frigate+ (alltid visa som optional)
-        echo -e "  ${CYAN}○${NC} ${BOLD}Frigate+ API Key${NC} — valfritt (förbättrad AI-detektering)" > /dev/tty
-        echo -e "    ${DIM}Frigate fungerar utan detta (använder standard OpenVINO-modeller).${NC}" > /dev/tty
-        echo -e "    ${DIM}Med Frigate+ kan du träna egna modeller för bättre precision.${NC}" > /dev/tty
-        echo -e "    ${CYAN}Skapa:${NC} https://plus.frigate.video → Account → API Key" > /dev/tty
-        echo -e "    ${CYAN}Lägg till:${NC} Redigera docker-compose.yml, lägg till PLUS_API_KEY=<nyckel>" > /dev/tty
+        # Google AI API Key (valfritt — för Frigate 0.18+ generativ AI)
+        echo -e "  ${CYAN}○${NC} ${BOLD}Google AI API Key${NC} — valfritt (generativ AI i Frigate 0.18+)" > /dev/tty
+        echo -e "    ${DIM}Ger: Sökbar beskrivning av händelser, semantic search, AI-sammanfattningar.${NC}" > /dev/tty
+        echo -e "    ${DIM}Frigate fungerar utan detta — du kan lägga till det när som helst.${NC}" > /dev/tty
+        echo -e "    ${CYAN}Skapa:${NC} https://aistudio.google.com/apikey" > /dev/tty
+        echo -e "    ${CYAN}Lägg till:${NC} Redigera docker-compose.yml, lägg till GEMINI_API_KEY=<nyckel>" > /dev/tty
+        echo -e "    ${CYAN}Konfigurera:${NC} Lägg till genai-block i Frigates config.yml (se docs)" > /dev/tty
         echo "" > /dev/tty
         
         echo -e "  ${DIM}────────────────────────────────────────────────────────────${NC}" > /dev/tty
