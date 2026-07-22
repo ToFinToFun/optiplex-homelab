@@ -102,6 +102,14 @@ Användbart om du vill byta lösenord utan att köra wizarden.
   bash <(curl -s https://gist.githubusercontent.com/ToFinToFun/ae2fcd9bdc5cb7a54f95969b972241fa/raw/change-ct-passwords.sh)
 
 
+ÄNDRA NÄTVERKSKONFIGURATION (NIC)
+──────────────────────────────────
+Interaktiv wizard för att ändra nätverksinställningar
+(IP, gateway, DNS, brygga) på Proxmox-noden.
+
+  bash <(curl -sL https://gist.githubusercontent.com/ToFinToFun/f4958e375ca911c4724f2ca3c1a2139e/raw/nic-wizard.sh)
+
+
 ═══════════════════════════════════════════════════════════════
   Repo: https://github.com/ToFinToFun/optiplex-homelab
 ═══════════════════════════════════════════════════════════════
