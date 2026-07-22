@@ -3,14 +3,30 @@
 ═══════════════════════════════════════════════════════════════
 
 
-INSTALLATION & WIZARD (en rad gör allt)
-────────────────────────────────────────
-Installerar verktyg, klonar repot och startar wizarden.
-Om repot redan finns: uppdaterar och visar interaktiv meny.
-Kan köras hur många gånger som helst — den kommer ihåg vad
-som redan är gjort och du väljer vad du vill köra/ändra.
+BÖRJA OM FRÅN SCRATCH (fresh start)
+────────────────────────────────────
+Raderar ALLA containers, VMs, konfiguration och repot.
+Klonar om från GitHub utan cache och startar om wizarden.
+Kör detta om något gått snett och du vill börja helt rent.
 
-bash <(curl -fsSL https://raw.githubusercontent.com/ToFinToFun/optiplex-homelab/master/scripts/bootstrap.sh)
+  bash <(curl -fsSL "https://raw.githubusercontent.com/ToFinToFun/optiplex-homelab/master/scripts/tools/fresh-start.sh?v=$(date +%s)")
+
+
+INSTALLATION (första gången)
+─────────────────────────────
+Installerar verktyg, klonar repot och startar wizarden.
+Kör detta på en färsk Proxmox-installation.
+
+  bash <(curl -fsSL https://raw.githubusercontent.com/ToFinToFun/optiplex-homelab/master/scripts/bootstrap.sh)
+
+
+KÖRA OM WIZARDEN (utan att ladda ner allt igen)
+────────────────────────────────────────────────
+Om repot redan finns och du bara vill köra wizarden igen.
+Den kommer ihåg vad som redan är gjort — du väljer vad
+du vill köra/ändra.
+
+  cd /opt/optiplex-homelab/scripts && bash setup.sh
 
 
 DIAGNOSTIK (felsökning)
@@ -18,7 +34,7 @@ DIAGNOSTIK (felsökning)
 Kollar BIOS, iGPU, containers, Docker, MQTT, brandvägg,
 NPM SSL, disk, temperatur — allt. Visar ✓/✗ per punkt.
 
-cd /opt/optiplex-homelab/scripts && bash tools/doctor.sh
+  cd /opt/optiplex-homelab/scripts && bash tools/doctor.sh
 
 
 SYSTEMSTATUS (snabb health-check)
@@ -26,13 +42,13 @@ SYSTEMSTATUS (snabb health-check)
 Visar status för alla containers/VM, iGPU-last,
 disk-utrymme och tunnel-anslutning.
 
-cd /opt/optiplex-homelab/scripts && bash tools/status.sh
+  cd /opt/optiplex-homelab/scripts && bash tools/status.sh
 
 
 PROXMOX-UPPDATERING
 ───────────────────
-Visar installerad vs tillgänglig version med key features.
-Erbjuder uppgradering/uppdatering om ny version finns.
+Visar installerad vs tillgänglig version.
+Erbjuder uppgradering om ny version finns.
 
   Bara kolla (ändrar inget):
   cd /opt/optiplex-homelab/scripts && bash tools/upgrade-proxmox.sh --check
@@ -41,12 +57,12 @@ Erbjuder uppgradering/uppdatering om ny version finns.
   cd /opt/optiplex-homelab/scripts && bash tools/upgrade-proxmox.sh
 
 
-UPPDATERA ALLT
-──────────────
+UPPDATERA ALLT (repo + paket + Docker)
+───────────────────────────────────────
 Uppdaterar repot (git pull), Proxmox-paket och alla
 Docker-images (Frigate, NPM).
 
-cd /opt/optiplex-homelab/scripts && bash tools/update.sh
+  cd /opt/optiplex-homelab/scripts && bash tools/update.sh
 
 
 BACKUP TILL USB
@@ -54,36 +70,23 @@ BACKUP TILL USB
 Tar en komplett backup av alla containers (exkl.
 Frigate-video) till ett USB-minne.
 
-cd /opt/optiplex-homelab/scripts && bash tools/usb-backup.sh
+  cd /opt/optiplex-homelab/scripts && bash tools/usb-backup.sh
 
 
-AVINSTALLERA ALLT (börja om)
-────────────────────────────
-Tar bort alla skapade containers och VM.
-Frågar innan varje borttagning.
-
-cd /opt/optiplex-homelab/scripts && bash tools/uninstall.sh
-
-
-FRESH START (radera ALLT och börja om från scratch)
-───────────────────────────────────────────────────
-Raderar ALLA containers/VMs, config, state och repot.
-Klonar om från GitHub utan cache och startar wizarden.
-Som att köra på en helt färsk Proxmox-installation.
-
-  Från installerat repo:
-  cd /opt/optiplex-homelab/scripts && bash tools/fresh-start.sh
-
-  Direkt one-liner (fungerar även om repot är trasigt):
-  bash <(curl -fsSL "https://raw.githubusercontent.com/ToFinToFun/optiplex-homelab/master/scripts/tools/fresh-start.sh?v=$(date +%s)")
-
-
-VISA INSTALLATIONSLOGGEN (vid problem)
+AVINSTALLERA (ta bort containers/VMs)
 ──────────────────────────────────────
-Visar vad som hände under installationen,
-användbart för felsökning.
+Tar bort alla skapade containers och VM.
+Frågar innan varje borttagning. Behåller repot.
 
-cat /var/log/optiplex-setup.log
+  cd /opt/optiplex-homelab/scripts && bash tools/uninstall.sh
+
+
+VISA INSTALLATIONSLOGGEN
+────────────────────────
+Visar vad som hände under installationen.
+Användbart vid felsökning.
+
+  cat /var/log/optiplex-setup.log
 
 
 ═══════════════════════════════════════════════════════════════
@@ -93,12 +96,10 @@ cat /var/log/optiplex-setup.log
 
 BYTA ROOT-LÖSENORD PÅ ALLA CONTAINERS
 ──────────────────────────────────────
-Fristående script som byter root-lösenord på alla
-befintliga LXC-containers. Användbart om du redan har
-containers som skapades med annat lösenord, eller om du
-vill byta lösenord utan att köra hela wizarden.
+Byter root-lösenord på alla befintliga LXC-containers.
+Användbart om du vill byta lösenord utan att köra wizarden.
 
-bash <(curl -s https://gist.githubusercontent.com/ToFinToFun/ae2fcd9bdc5cb7a54f95969b972241fa/raw/change-ct-passwords.sh)
+  bash <(curl -s https://gist.githubusercontent.com/ToFinToFun/ae2fcd9bdc5cb7a54f95969b972241fa/raw/change-ct-passwords.sh)
 
 
 ═══════════════════════════════════════════════════════════════
