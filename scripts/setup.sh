@@ -168,6 +168,23 @@ msg_header "Konfiguration"
 if load_config; then
     msg_ok "Hittade befintlig konfiguration (setup.env)"
     
+    # Vid omkörning: erbjud att lägga till tunnel-token om den saknas
+    if [ -z "$CF_TUNNEL_TOKEN" ]; then
+        echo "" > /dev/tty
+        msg_warn "Cloudflare Tunnel-token saknas i konfigurationen."
+        echo -e "  ${CYAN}Utan token fungerar INTE extern åtkomst (ha.dindomän.se etc).${NC}" > /dev/tty
+        echo -e "  ${CYAN}Skapa token: https://one.dash.cloudflare.com → Networks → Tunnels${NC}" > /dev/tty
+        echo "" > /dev/tty
+        if ask_yes_no "Vill du lägga till en Cloudflare Tunnel-token nu?" "N"; then
+            CF_TUNNEL_TOKEN=$(ask_string "Cloudflare Tunnel Token" "")
+            if [ -n "$CF_TUNNEL_TOKEN" ]; then
+                save_config
+                chmod 600 setup.env 2>/dev/null
+                msg_ok "Tunnel-token sparad!"
+            fi
+        fi
+    fi
+
     # Vid omkörning: erbjud att byta lösenord
     if [ -n "$SHARED_PASSWORD" ]; then
         if ! ask_yes_no "Behålla befintligt gemensamt lösenord?" "Y"; then
@@ -421,6 +438,26 @@ if [ "$DO_FRIGATE" == "y" ] && check_id_exists $IP_FRIGATE 2>/dev/null; then
     if ! ask_yes_no "Vill du RADERA och återskapa den?" "N"; then
         DO_FRIGATE="n"
         msg_skip "Behåller befintlig Frigate-container."
+    fi
+fi
+
+# Aktivera tunnel på befintlig Cloudflared-container om token nu finns men tunnel inte är aktiv
+if [ "$DO_CF" == "n" ] && [ -n "$CF_TUNNEL_TOKEN" ] && check_id_exists $IP_CLOUDFLARED 2>/dev/null; then
+    # Kolla om cloudflared service redan kör
+    CF_RUNNING=$(pct exec $IP_CLOUDFLARED -- systemctl is-active cloudflared 2>/dev/null || echo "inactive")
+    if [ "$CF_RUNNING" != "active" ]; then
+        echo "" > /dev/tty
+        msg_info "Cloudflared-containern finns men tunneln är inte aktiv."
+        if ask_yes_no "Vill du aktivera Cloudflare Tunnel med din token nu?" "Y"; then
+            msg_info "Installerar tunnel-token i CT ${IP_CLOUDFLARED}..."
+            pct exec ${IP_CLOUDFLARED} -- bash -c "cloudflared service install ${CF_TUNNEL_TOKEN}" > /dev/null 2>&1
+            if pct exec ${IP_CLOUDFLARED} -- systemctl is-active cloudflared &>/dev/null; then
+                msg_ok "Cloudflare Tunnel aktiverad och kör!"
+            else
+                msg_warn "Tunnel-tjänsten startade inte. Kontrollera token och kör:"
+                echo -e "  ${YELLOW}pct exec ${IP_CLOUDFLARED} -- cloudflared service install <TOKEN>${NC}" > /dev/tty
+            fi
+        fi
     fi
 fi
 
@@ -774,8 +811,15 @@ fi
 if [ -z "$CF_TUNNEL_TOKEN" ] && check_id_exists $IP_CLOUDFLARED 2>/dev/null; then
     echo -e "  ${STEP}. ${RED}${BOLD}Cloudflare Tunnel Token saknas!${NC}"
     echo -e "     Utan token fungerar INTE extern åtkomst (ha.dindomän.se)."
-    echo -e "     Följ: docs/10-cloudflare-api-setup.md"
-    echo -e "     Sedan: ${YELLOW}pct exec $IP_CLOUDFLARED -- cloudflared service install <DIN_TOKEN>${NC}"
+    echo -e ""
+    echo -e "     ${BOLD}Så här fixar du det:${NC}"
+    echo -e "     a) Skapa tunnel: https://one.dash.cloudflare.com → Networks → Tunnels"
+    echo -e "     b) Kopiera token-strängen"
+    echo -e "     c) Kör wizarden igen: ${GREEN}cd /opt/optiplex-homelab/scripts && bash setup.sh${NC}"
+    echo -e "        (Du får frågan om token direkt vid start)"
+    echo -e ""
+    echo -e "     ${DIM}Eller manuellt: pct exec $IP_CLOUDFLARED -- cloudflared service install <TOKEN>${NC}"
+    echo -e "     ${DIM}Mer info: docs/10-cloudflare-api-setup.md${NC}"
     STEP=$((STEP + 1))
 fi
 
