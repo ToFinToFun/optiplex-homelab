@@ -295,11 +295,6 @@ check_id_exists $IP_FRIGATE 2>/dev/null && STATUS_FRIGATE="installerad"
 [ "$(get_state cfdns_configured)" == "true" ] && STATUS_CFDNS="klar"
 [ "$(get_state npm_configured)" == "true" ] && STATUS_NPMCONF="klar"
 
-# ============================================================
-# BIOS-verifiering — visas ALLTID oavsett host_configured state
-# ============================================================
-show_bios_status
-
 # Räkna hur många som är klara
 DONE_COUNT=0
 [ "$STATUS_HOST" != "saknas" ] && DONE_COUNT=$((DONE_COUNT + 1))

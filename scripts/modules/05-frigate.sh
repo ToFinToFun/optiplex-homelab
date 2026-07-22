@@ -19,7 +19,8 @@ if ! pct create "${IP_FRIGATE}" "${TEMPLATE_PATH}" \
     --rootfs "${STORAGE_POOL}:8" \
     --password "${SHARED_PASSWORD:-$CT_PASSWORD}" \
     --unprivileged 1 \
-    --features nesting=1 2>&1; then
+    --features nesting=1,keyctl=1 \
+    --onboot 1 2>&1; then
     msg_err "Kunde inte skapa container ${IP_FRIGATE}. Se felmeddelande ovan."
     return 1 2>/dev/null || exit 1
 fi
@@ -57,8 +58,8 @@ msg_info "Installerar Docker och Intel drivrutiner..."
 pct exec "${IP_FRIGATE}" -- bash -c "apt-get update -qq > /dev/null 2>&1"
 pct exec "${IP_FRIGATE}" -- bash -c "apt-get install -y -qq curl ca-certificates gnupg > /dev/null 2>&1"
 
-# Intel media driver — kan saknas i vissa repos, ej kritiskt
-pct exec "${IP_FRIGATE}" -- bash -c "apt-get install -y -qq intel-media-va-driver-non-free vainfo > /dev/null 2>&1" || \
+# Intel media driver — Debian 13 använder 'intel-media-driver', äldre versioner 'intel-media-va-driver-non-free'
+pct exec "${IP_FRIGATE}" -- bash -c "apt-get install -y -qq intel-media-va-driver-non-free vainfo > /dev/null 2>&1 || apt-get install -y -qq intel-media-driver vainfo > /dev/null 2>&1" || \
     msg_warn "Intel VA-driver kunde inte installeras (kan läggas till manuellt senare)"
 
 # Docker installation

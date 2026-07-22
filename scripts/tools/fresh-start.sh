@@ -99,6 +99,21 @@ echo -e "  ${GREEN}✓${NC} State, config och genererade filer borttagna"
 rm -f /var/log/optiplex-setup.log 2>/dev/null
 echo -e "  ${GREEN}✓${NC} Installationslogg borttagen"
 
+# Ta bort frigate-storage (Proxmox storage + fstab + mount)
+if pvesm status 2>/dev/null | grep -q "frigate-storage"; then
+    echo -e "  ${CYAN}→${NC} Tar bort Proxmox storage 'frigate-storage'..."
+    pvesm remove frigate-storage >/dev/null 2>&1 || true
+    echo -e "  ${GREEN}✓${NC} frigate-storage borttagen från Proxmox"
+fi
+if mountpoint -q /mnt/frigate-storage 2>/dev/null; then
+    umount /mnt/frigate-storage 2>/dev/null || true
+    echo -e "  ${GREEN}✓${NC} /mnt/frigate-storage avmonterad"
+fi
+if grep -q "frigate-storage" /etc/fstab 2>/dev/null; then
+    sed -i '/frigate-storage/d' /etc/fstab
+    echo -e "  ${GREEN}✓${NC} fstab-entry för frigate-storage borttagen"
+fi
+
 echo ""
 echo -e "${CYAN}── Steg 3: Tar bort repot ──${NC}"
 rm -rf "$INSTALL_DIR"

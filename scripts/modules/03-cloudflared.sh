@@ -18,7 +18,8 @@ if ! pct create "${IP_CLOUDFLARED}" "${TEMPLATE_PATH}" \
     --rootfs "${STORAGE_POOL}:8" \
     --password "${SHARED_PASSWORD:-$CT_PASSWORD}" \
     --unprivileged 1 \
-    --features nesting=1 2>&1; then
+    --features nesting=1 \
+    --onboot 1 2>&1; then
     msg_err "Kunde inte skapa container ${IP_CLOUDFLARED}. Se felmeddelande ovan."
     return 1 2>/dev/null || exit 1
 fi
