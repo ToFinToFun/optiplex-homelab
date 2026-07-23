@@ -6,7 +6,25 @@ TEMPLATE_PATH=$1
 CIDR="${NETWORK_CIDR:-24}"
 CT_IP="${NETWORK_PREFIX}.${IP_FRIGATE}"
 
-msg_info "Skapar LXC-container ${IP_FRIGATE}..."
+# Diskstorlek för Frigate CT (Docker-images + modeller + clips)
+# Minimum 32 GB, rekommenderat 64 GB
+if [ "${HEADLESS:-false}" == "true" ]; then
+    FRIGATE_DISK="${FRIGATE_DISK_SIZE:-64}"
+else
+    tty_echo ""
+    tty_echo "  Frigate behöver diskutrymme för Docker-images, AI-modeller och clips."
+    tty_echo "  Videoinspelningar lagras separat (på dedikerad disk om sådan finns)."
+    tty_echo ""
+    tty_echo "  Rekommenderat: 64 GB (minimum: 32 GB)"
+    tty_echo ""
+    FRIGATE_DISK=$(ask_string "Diskstorlek för Frigate CT (GB)" "64")
+    # Validera minimum
+    if [ "$FRIGATE_DISK" -lt 32 ] 2>/dev/null; then
+        msg_warn "Minimum är 32 GB. Sätter 32 GB."
+        FRIGATE_DISK=32
+    fi
+fi
+msg_info "Skapar LXC-container ${IP_FRIGATE} (disk: ${FRIGATE_DISK}GB)..."
 
 # Skapa container — lösenord i variabel för att undvika shell-expansion-problem
 if ! pct create "${IP_FRIGATE}" "${TEMPLATE_PATH}" \
@@ -16,7 +34,7 @@ if ! pct create "${IP_FRIGATE}" "${TEMPLATE_PATH}" \
     --swap 0 \
     --net0 "name=eth0,bridge=vmbr0,ip=${CT_IP}/${CIDR},gw=${GATEWAY}" \
     --storage "${STORAGE_POOL}" \
-    --rootfs "${STORAGE_POOL}:8" \
+    --rootfs "${STORAGE_POOL}:${FRIGATE_DISK}" \
     --password "${SHARED_PASSWORD:-$CT_PASSWORD}" \
     --unprivileged 1 \
     --features nesting=1,keyctl=1 \
