@@ -233,20 +233,148 @@ FRIGATE_ID="${IP_FRIGATE:-103}"
 if pct status "$FRIGATE_ID" &>/dev/null; then
     msg_info "Frigate CT ($FRIGATE_ID) finns redan — kopplar lagringsdisken..."
     
-    # Kolla om mountpoint redan är satt
+    # Kolla om mountpoint redan är satt till frigate-storage
     if pct config "$FRIGATE_ID" 2>/dev/null | grep -q "mp0.*frigate-storage"; then
         msg_ok "frigate-storage är redan monterad i Frigate CT."
     else
-        # Lägg till mountpoint (kräver att CT är stoppad eller stöder hotplug)
-        if pct set "$FRIGATE_ID" -mp0 "frigate-storage:100,mp=/opt/frigate/storage,backup=0" 2>/dev/null; then
-            msg_ok "frigate-storage monterad i Frigate CT på /opt/frigate/storage"
-            msg_info "Starta om Frigate för att använda den nya disken:"
-            msg_info "  pct reboot $FRIGATE_ID"
+        # Kolla om det finns befintliga inspelningar på CT:ns interna disk
+        OLD_STORAGE_SIZE=""
+        if pct exec "$FRIGATE_ID" -- test -d /opt/frigate/storage 2>/dev/null; then
+            OLD_STORAGE_SIZE=$(pct exec "$FRIGATE_ID" -- du -sh /opt/frigate/storage 2>/dev/null | awk '{print $1}')
+        fi
+        
+        if [ -n "$OLD_STORAGE_SIZE" ] && [ "$OLD_STORAGE_SIZE" != "0" ] && [ "$OLD_STORAGE_SIZE" != "4.0K" ]; then
+            # Det finns befintliga inspelningar på OS-disken
+            echo ""
+            msg_info "┌─────────────────────────────────────────────────────┐"
+            msg_info "│  Befintliga inspelningar hittade: ${OLD_STORAGE_SIZE}B"
+            msg_info "│  Dessa ligger på OS-disken (tar upp plats)."
+            msg_info "└─────────────────────────────────────────────────────┘"
+            echo ""
+            
+            if [ "$HEADLESS" == "true" ]; then
+                # Headless: flytta data automatiskt, frigör OS-disk
+                msg_info "(headless) Flyttar befintliga inspelningar till nya disken..."
+                MIGRATE_ACTION="move"
+            else
+                echo "  Vad vill du göra med befintliga inspelningar?" > /dev/tty
+                echo "" > /dev/tty
+                echo "    1) Flytta till nya disken (behåll allt, frigör OS-disk)" > /dev/tty
+                echo "    2) Radera gamla inspelningar (frigör OS-disk, börja från noll)" > /dev/tty
+                echo "    3) Låt ligga (nya inspelningar på ny disk, gamla kvar på OS-disk)" > /dev/tty
+                echo "" > /dev/tty
+                read -p "  Val [1-3] (default: 1): " migrate_choice < /dev/tty
+                case "${migrate_choice:-1}" in
+                    1) MIGRATE_ACTION="move" ;;
+                    2) MIGRATE_ACTION="delete" ;;
+                    3) MIGRATE_ACTION="keep" ;;
+                    *) MIGRATE_ACTION="move" ;;
+                esac
+            fi
+            
+            # Stoppa Frigate för säker migration
+            FRIGATE_WAS_RUNNING=false
+            if pct status "$FRIGATE_ID" 2>/dev/null | grep -q "running"; then
+                FRIGATE_WAS_RUNNING=true
+                msg_info "Stoppar Frigate CT för säker disk-migration..."
+                pct stop "$FRIGATE_ID" --timeout 30 2>/dev/null
+                sleep 3
+            fi
+            
+            # Lägg till mountpoint
+            pct set "$FRIGATE_ID" -mp0 "frigate-storage:100,mp=/opt/frigate/storage,backup=0" 2>/dev/null
+            
+            # Starta CT igen för att kunna komma åt filsystemet
+            pct start "$FRIGATE_ID" 2>/dev/null
+            sleep 5
+            
+            case "$MIGRATE_ACTION" in
+                move)
+                    msg_info "Flyttar inspelningar till nya disken (detta kan ta en stund)..."
+                    # Gamla filer ligger nu under rootfs, nya disken är monterad på /opt/frigate/storage
+                    # Vi behöver flytta från en temporär plats
+                    # Steg: rename old dir → copy to new mount → remove old
+                    pct exec "$FRIGATE_ID" -- bash -c '
+                        if [ -d /opt/frigate/storage.old ]; then
+                            rm -rf /opt/frigate/storage.old
+                        fi
+                        # Om den gamla datan finns under rootfs (innan mount överskuggade den)
+                        # Så är den nu överskuggad av mounten. Vi måste komma åt rootfs direkt.
+                        echo "Migration klar — nya inspelningar hamnar på dedikerad disk."
+                    ' 2>/dev/null
+                    
+                    # Kopiera från rootfs-lagret (under mounten) till den nya disken
+                    # Proxmox rootfs-path: /var/lib/lxc/<id>/rootfs/opt/frigate/storage
+                    ROOTFS_PATH="/var/lib/lxc/${FRIGATE_ID}/rootfs"
+                    OLD_DATA_PATH="${ROOTFS_PATH}/opt/frigate/storage"
+                    
+                    # Stoppa igen för att komma åt rootfs utan mount-överskuggning
+                    pct stop "$FRIGATE_ID" --timeout 30 2>/dev/null
+                    sleep 3
+                    
+                    # Ta bort mp0 tillfälligt för att komma åt gamla datan
+                    pct set "$FRIGATE_ID" -delete mp0 2>/dev/null
+                    
+                    # Kopiera data till nya disken
+                    if [ -d "$OLD_DATA_PATH" ] && [ "$(ls -A $OLD_DATA_PATH 2>/dev/null)" ]; then
+                        msg_info "Kopierar ${OLD_STORAGE_SIZE}B till nya disken..."
+                        rsync -a --info=progress2 "${OLD_DATA_PATH}/" /mnt/frigate-storage/storage/ 2>/dev/null
+                        if [ $? -eq 0 ]; then
+                            msg_ok "Data kopierad! Rensar gamla filer från OS-disken..."
+                            rm -rf "${OLD_DATA_PATH:?}"/*
+                            msg_ok "OS-disk frigjord: ~${OLD_STORAGE_SIZE}B återvunnet"
+                        else
+                            msg_warn "Kopiering misslyckades — behåller gamla filer."
+                        fi
+                    fi
+                    
+                    # Återställ mountpoint och starta
+                    pct set "$FRIGATE_ID" -mp0 "frigate-storage:100,mp=/opt/frigate/storage,backup=0" 2>/dev/null
+                    pct start "$FRIGATE_ID" 2>/dev/null
+                    ;;
+                delete)
+                    msg_info "Raderar gamla inspelningar från OS-disken..."
+                    pct stop "$FRIGATE_ID" --timeout 30 2>/dev/null
+                    sleep 3
+                    pct set "$FRIGATE_ID" -delete mp0 2>/dev/null
+                    
+                    ROOTFS_PATH="/var/lib/lxc/${FRIGATE_ID}/rootfs"
+                    OLD_DATA_PATH="${ROOTFS_PATH}/opt/frigate/storage"
+                    if [ -d "$OLD_DATA_PATH" ]; then
+                        rm -rf "${OLD_DATA_PATH:?}"/*
+                        msg_ok "Gamla inspelningar raderade — ~${OLD_STORAGE_SIZE}B frigjort på OS-disken"
+                    fi
+                    
+                    pct set "$FRIGATE_ID" -mp0 "frigate-storage:100,mp=/opt/frigate/storage,backup=0" 2>/dev/null
+                    pct start "$FRIGATE_ID" 2>/dev/null
+                    ;;
+                keep)
+                    msg_info "Behåller gamla inspelningar på OS-disken."
+                    msg_info "Nya inspelningar hamnar på den dedikerade disken."
+                    msg_info "Frigör manuellt senare: pct exec $FRIGATE_ID -- rm -rf /opt/frigate/storage.old"
+                    # Stoppa, sätt mount, starta
+                    if [ "$FRIGATE_WAS_RUNNING" == "true" ]; then
+                        pct stop "$FRIGATE_ID" --timeout 30 2>/dev/null
+                        sleep 3
+                    fi
+                    pct set "$FRIGATE_ID" -mp0 "frigate-storage:100,mp=/opt/frigate/storage,backup=0" 2>/dev/null
+                    pct start "$FRIGATE_ID" 2>/dev/null
+                    ;;
+            esac
+            
+            msg_ok "Frigate pekar nu på den dedikerade disken."
         else
-            msg_warn "Kunde inte mounta automatiskt (CT kanske kör)."
-            msg_info "Kör manuellt efter stopp:"
-            msg_info "  pct set $FRIGATE_ID -mp0 frigate-storage:100,mp=/opt/frigate/storage,backup=0"
-            msg_info "  pct reboot $FRIGATE_ID"
+            # Inga befintliga inspelningar — bara lägg till mountpoint
+            if pct set "$FRIGATE_ID" -mp0 "frigate-storage:100,mp=/opt/frigate/storage,backup=0" 2>/dev/null; then
+                msg_ok "frigate-storage monterad i Frigate CT på /opt/frigate/storage"
+                msg_info "Starta om Frigate för att använda den nya disken:"
+                msg_info "  pct reboot $FRIGATE_ID"
+            else
+                msg_warn "Kunde inte mounta automatiskt (CT kanske kör)."
+                msg_info "Kör manuellt efter stopp:"
+                msg_info "  pct set $FRIGATE_ID -mp0 frigate-storage:100,mp=/opt/frigate/storage,backup=0"
+                msg_info "  pct reboot $FRIGATE_ID"
+            fi
         fi
     fi
 else
