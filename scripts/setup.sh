@@ -1262,6 +1262,22 @@ if [ "$DRY_RUN" != "true" ]; then
 fi
 
 # ==========================================
+# 5.5 IP-konsistenskontroll (NPM vs faktiska IP:er)
+# ==========================================
+if [ "$DRY_RUN" != "true" ] && check_id_exists ${IP_NPM:-102} 2>/dev/null; then
+    echo ""
+    msg_header "IP-konsistenskontroll"
+    msg_info "Verifierar att NPM proxy-regler matchar faktiska IP:er..."
+    if [ -f tools/ip-check.sh ]; then
+        if [ "$HEADLESS" == "true" ]; then
+            bash tools/ip-check.sh --auto-fix 2>&1 | tail -20
+        else
+            bash tools/ip-check.sh
+        fi
+    fi
+fi
+
+# ==========================================
 # 6. Summary
 # ==========================================
 CURRENT_STEP=$TOTAL_STEPS

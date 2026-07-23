@@ -2,6 +2,7 @@
 source setup.env
 source lib/ui.sh
 source lib/proxmox.sh
+source lib/network.sh
 
 msg_header "Nginx Proxy Manager Auto-Config"
 
@@ -94,14 +95,59 @@ create_proxy_host() {
     msg_ok "Skapade ${sub}.${DOMAIN}"
 }
 
-# HA
+# Upptäck faktiska IP:er (hanterar både DHCP och manuellt ändrade IP:er)
+_get_actual_ip() {
+    local hostname="$1"
+    local config_id="$2"
+    local ct_id
+    ct_id=$(resolve_ct_id "$hostname" "$config_id")
+    if [ -n "$ct_id" ] && pct status "$ct_id" 2>/dev/null | grep -q "running"; then
+        local ip
+        ip=$(pct exec "$ct_id" -- hostname -I 2>/dev/null | awk '{print $1}')
+        if [ -n "$ip" ] && [ "$ip" != "127.0.0.1" ]; then
+            echo "$ip"
+            return
+        fi
+    fi
+    # Fallback till konfigurerad IP
+    echo "${NETWORK_PREFIX}.${config_id}"
+}
+
+# HA (VM — använd qm guest agent eller fallback)
+HA_ACTUAL_IP=""
+HA_VM_ID=$(resolve_vm_id "ha" "$IP_HA")
+if [ -n "$HA_VM_ID" ] && qm status "$HA_VM_ID" 2>/dev/null | grep -q "running"; then
+    HA_ACTUAL_IP=$(qm guest cmd "$HA_VM_ID" network-get-interfaces 2>/dev/null | \
+        python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    for iface in data:
+        if iface.get('name') == 'lo': continue
+        for addr in iface.get('ip-addresses', []):
+            if addr.get('ip-address-type') == 'ipv4' and not addr['ip-address'].startswith('127.'):
+                print(addr['ip-address'])
+                sys.exit(0)
+except: pass
+" 2>/dev/null)
+fi
+[ -z "$HA_ACTUAL_IP" ] && HA_ACTUAL_IP="${NETWORK_PREFIX}.${IP_HA}"
+
 if check_id_exists $IP_HA; then
-    create_proxy_host "ha" "${NETWORK_PREFIX}.${IP_HA}" 8123 true
+    create_proxy_host "ha" "$HA_ACTUAL_IP" 8123 true
 fi
 
 # Frigate
+FRIG_ACTUAL_IP=$(_get_actual_ip "frigate" "$IP_FRIGATE")
 if check_id_exists $IP_FRIGATE; then
-    create_proxy_host "frigate" "${NETWORK_PREFIX}.${IP_FRIGATE}" 5000 true
+    create_proxy_host "frigate" "$FRIG_ACTUAL_IP" 5000 true
+fi
+
+# Guacamole (om installerad)
+if [ -n "${IP_GUACAMOLE}" ] && check_id_exists $IP_GUACAMOLE 2>/dev/null; then
+    GUAC_ACTUAL_IP=$(_get_actual_ip "guacamole" "$IP_GUACAMOLE")
+    create_proxy_host "rdp" "$GUAC_ACTUAL_IP" 8080 true
 fi
 
 msg_ok "NPM-konfiguration slutförd!"
+msg_info "WebSockets är aktiverat för alla tjänster (krävs för Frigate live-video)."

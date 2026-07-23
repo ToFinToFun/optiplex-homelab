@@ -373,38 +373,103 @@ if command -v nft &>/dev/null; then
 fi
 
 # ============================================================
-# 8. NPM SSL-KONFIGURATION
+# 8. NPM KONFIGURATION (SSL, WebSockets, IP-mismatch)
 # ============================================================
-msg_header "NPM SSL-konfiguration"
+msg_header "NPM Proxy-konfiguration"
 
 if [ "$NO_ROOT" != "true" ]; then
     NPM_ID="${IP_NPM:-102}"
     if pct status $NPM_ID 2>/dev/null | grep -q "running"; then
-        # Kolla om NPM har Force SSL aktiverat (via API)
-        NPM_IP="${NW}.${NPM_ID}"
-        # Försök hämta proxy hosts
+        # Upptäck NPM:s faktiska IP
+        NPM_IP=$(pct exec $NPM_ID -- hostname -I 2>/dev/null | awk '{print $1}')
+        [ -z "$NPM_IP" ] && NPM_IP="${NW}.${NPM_ID}"
+        
+        # Försök logga in (gemensamt lösenord först, sedan default)
+        NPM_EMAIL="${NPM_ADMIN_EMAIL:-admin@example.com}"
+        NPM_PASS="${SHARED_PASSWORD:-changeme}"
         TOKEN_RES=$(curl -s --max-time 5 -X POST "http://${NPM_IP}:81/api/tokens" \
             -H "Content-Type: application/json" \
-            -d '{"identity": "admin@example.com", "secret": "changeme"}' 2>/dev/null)
+            -d "{\"identity\": \"${NPM_EMAIL}\", \"secret\": \"${NPM_PASS}\"}" 2>/dev/null)
         TOKEN=$(echo "$TOKEN_RES" | grep -o '"token":"[^"]*' 2>/dev/null | cut -d'"' -f4)
         
+        if [ -z "$TOKEN" ] && [ "$NPM_PASS" != "changeme" ]; then
+            TOKEN_RES=$(curl -s --max-time 5 -X POST "http://${NPM_IP}:81/api/tokens" \
+                -H "Content-Type: application/json" \
+                -d '{"identity": "admin@example.com", "secret": "changeme"}' 2>/dev/null)
+            TOKEN=$(echo "$TOKEN_RES" | grep -o '"token":"[^"]*' 2>/dev/null | cut -d'"' -f4)
+        fi
+        
         if [ -n "$TOKEN" ]; then
-            # Hämta proxy hosts och kolla SSL
             HOSTS=$(curl -s --max-time 5 "http://${NPM_IP}:81/api/nginx/proxy-hosts" \
                 -H "Authorization: Bearer $TOKEN" 2>/dev/null)
             
+            # Force SSL-check
             FORCE_SSL_COUNT=$(echo "$HOSTS" | grep -o '"ssl_forced":1' | wc -l 2>/dev/null || echo "0")
             if [ "$FORCE_SSL_COUNT" -gt 0 ]; then
                 msg_warn "NPM: ${FORCE_SSL_COUNT} proxy host(s) har 'Force SSL' aktiverat!"
                 msg_info "  Detta orsakar redirect-loop med Cloudflare Tunnel."
                 msg_info "  Åtgärd: NPM Admin → Proxy Hosts → Edit → SSL → Avmarkera 'Force SSL'"
+                msg_info "  Eller kör: ${YELLOW}sudo bash tools/ip-check.sh --auto-fix${NC}"
                 WARNINGS=$((WARNINGS + 1))
             else
                 msg_ok "NPM: Ingen 'Force SSL' aktiv (korrekt med Cloudflare Tunnel)"
             fi
+            
+            # WebSocket-check för Frigate
+            FRIGATE_NO_WS=$(echo "$HOSTS" | python3 -c "
+import json, sys
+try:
+    hosts = json.load(sys.stdin)
+    for h in hosts:
+        domains = ','.join(h.get('domain_names', []))
+        port = h.get('forward_port', 0)
+        ws = h.get('allow_websocket_upgrade', 0)
+        if port == 5000 or 'frigate' in domains.lower() or 'nvr' in domains.lower():
+            if not ws:
+                print(f'{domains}')
+except: pass
+" 2>/dev/null)
+            
+            if [ -n "$FRIGATE_NO_WS" ]; then
+                msg_warn "NPM: Frigate-proxy (${FRIGATE_NO_WS}) saknar WebSockets!"
+                msg_info "  Frigate kräver WebSockets för live-video. UI:t snurrar utan det."
+                msg_info "  Åtgärd: NPM Admin → Proxy Hosts → Edit → Websockets Support: ON"
+                msg_info "  Eller kör: ${YELLOW}sudo bash tools/ip-check.sh --auto-fix${NC}"
+                WARNINGS=$((WARNINGS + 1))
+            else
+                msg_ok "NPM: WebSockets aktiverat för Frigate (krävs för live-video)"
+            fi
+            
+            # IP-mismatch-check (snabb)
+            FRIG_ID="${IP_FRIGATE:-103}"
+            if pct status $FRIG_ID 2>/dev/null | grep -q "running"; then
+                FRIG_ACTUAL=$(pct exec $FRIG_ID -- hostname -I 2>/dev/null | awk '{print $1}')
+                if [ -n "$FRIG_ACTUAL" ]; then
+                    NPM_FRIG_FWD=$(echo "$HOSTS" | python3 -c "
+import json, sys
+try:
+    hosts = json.load(sys.stdin)
+    for h in hosts:
+        domains = ','.join(h.get('domain_names', []))
+        port = h.get('forward_port', 0)
+        if port == 5000 or 'frigate' in domains.lower():
+            print(h.get('forward_host', ''))
+            break
+except: pass
+" 2>/dev/null)
+                    if [ -n "$NPM_FRIG_FWD" ] && [ "$NPM_FRIG_FWD" != "$FRIG_ACTUAL" ]; then
+                        msg_warn "NPM pekar Frigate till ${NPM_FRIG_FWD} men Frigate har IP ${FRIG_ACTUAL}!"
+                        msg_info "  Kör: ${YELLOW}sudo bash tools/ip-check.sh --auto-fix${NC}"
+                        WARNINGS=$((WARNINGS + 1))
+                    elif [ -n "$NPM_FRIG_FWD" ]; then
+                        msg_ok "NPM → Frigate: IP matchar (${FRIG_ACTUAL})"
+                    fi
+                fi
+            fi
         else
-            msg_info "NPM: Kunde inte logga in med default-credentials (lösenord redan bytt)"
-            msg_info "  Kontrollera manuellt att 'Force SSL' INTE är aktiverat i NPM."
+            msg_info "NPM: Kunde inte logga in (lösenord bytt manuellt)"
+            msg_info "  Kontrollera manuellt: http://${NPM_IP}:81"
+            msg_info "  Eller kör: ${YELLOW}sudo bash tools/ip-check.sh${NC}"
         fi
     fi
 else
