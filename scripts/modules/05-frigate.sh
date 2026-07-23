@@ -105,6 +105,9 @@ pct exec "${IP_FRIGATE}" -- bash -c 'echo "deb [arch=$(dpkg --print-architecture
 pct exec "${IP_FRIGATE}" -- bash -c "apt-get update -qq > /dev/null 2>&1"
 pct exec "${IP_FRIGATE}" -- bash -c "apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin > /dev/null 2>&1"
 
+# Veckovis prune av gamla Docker-images (söndag 03:00) — frigör disk vid uppgraderingar
+pct exec "${IP_FRIGATE}" -- bash -c 'echo "0 3 * * 0 docker image prune -f >> /var/log/docker-prune.log 2>&1" | crontab -'
+
 msg_info "Konfigurerar Frigate..."
 pct exec "${IP_FRIGATE}" -- bash -c "mkdir -p /opt/frigate/config /opt/frigate/storage"
 
