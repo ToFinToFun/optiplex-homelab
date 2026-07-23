@@ -64,12 +64,14 @@ SERVICE_NAMES[ha]="Home Assistant"
 SERVICE_NAMES[cloudflared]="Cloudflared"
 SERVICE_NAMES[npm]="NPM"
 SERVICE_NAMES[frigate]="Frigate"
+SERVICE_NAMES[adguard]="AdGuard Home"
 SERVICE_NAMES[guacamole]="Guacamole"
 SERVICE_NAMES[desktop]="Desktop"
 
 SERVICE_PORTS[ha]=8123
 SERVICE_PORTS[frigate]=5000
 SERVICE_PORTS[npm]=81
+SERVICE_PORTS[adguard]=80
 SERVICE_PORTS[guacamole]=8080
 
 # Upptäck HA (VM — använder qm guest exec eller nätverksconfig)
@@ -188,6 +190,16 @@ elif [ -n "$FRIG_ID" ]; then
     msg_warn "Frigate (CT $FRIG_ID): Inte igång"
 fi
 
+# AdGuard Home
+AGH_ID=$(resolve_ct_id "adguard" "${IP_ADGUARD:-104}")
+AGH_ACTUAL=$(discover_ct_actual_ip "adguard" "${IP_ADGUARD:-104}")
+if [ -n "$AGH_ACTUAL" ]; then
+    ACTUAL_IPS[adguard]="$AGH_ACTUAL"
+    msg_ok "AdGuard Home (CT $AGH_ID): ${AGH_ACTUAL}"
+elif [ -n "$AGH_ID" ]; then
+    msg_warn "AdGuard Home (CT $AGH_ID): Inte igång"
+fi
+
 # Guacamole
 GUAC_ID=$(resolve_ct_id "guacamole" "${IP_GUACAMOLE:-107}")
 GUAC_ACTUAL=$(discover_ct_actual_ip "guacamole" "${IP_GUACAMOLE:-107}")
@@ -215,6 +227,7 @@ SVC_TO_VAR[ha]="IP_HA"
 SVC_TO_VAR[cloudflared]="IP_CLOUDFLARED"
 SVC_TO_VAR[npm]="IP_NPM"
 SVC_TO_VAR[frigate]="IP_FRIGATE"
+SVC_TO_VAR[adguard]="IP_ADGUARD"
 SVC_TO_VAR[guacamole]="IP_GUACAMOLE"
 SVC_TO_VAR[desktop]="IP_DESKTOP"
 

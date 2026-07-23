@@ -498,6 +498,29 @@ else
     IP_CLOUDFLARED=$(ask_string "CT ID för Cloudflared" "101")
     IP_NPM=$(ask_string "CT ID för NPM" "102")
     IP_FRIGATE=$(ask_string "CT ID för Frigate" "103")
+    IP_ADGUARD=$(ask_string "CT ID för AdGuard Home (DNS)" "104")
+    
+    # AdGuard Home upstream DNS
+    tty_echo ""
+    tty_echo "  ${BOLD}AdGuard Home — Upstream DNS${NC}"
+    tty_echo "  ${DIM}AdGuard skickar DNS-frågor vidare till en upstream-server.${NC}"
+    tty_echo "  ${DIM}1) Cloudflare DoH (krypterad, snabb, rekommenderat)${NC}"
+    tty_echo "  ${DIM}2) Din router (${GATEWAY}) — enklast, använder ISP:ns DNS${NC}"
+    tty_echo ""
+    if ask_yes_no "Använd Cloudflare DoH som upstream? (Nej = router)" "Y"; then
+        ADGUARD_UPSTREAM="cloudflare"
+    else
+        ADGUARD_UPSTREAM="router"
+    fi
+    
+    # Domän för split-DNS
+    tty_echo ""
+    CF_DOMAIN=$(ask_string "Din domän för split-DNS rewrites (t.ex. example.com, Enter = hoppa över)" "")
+    if [ -n "$CF_DOMAIN" ]; then
+        msg_ok "Split-DNS konfigureras för *.${CF_DOMAIN}"
+    else
+        msg_info "Ingen domän angiven — split-DNS konfigureras senare."
+    fi
     
     # ── IP-konfliktcheck (bara vid statisk) ────────────────────
     if [ "$USE_DHCP" != "true" ]; then
@@ -530,6 +553,7 @@ else
                 _fix_ip IP_CLOUDFLARED "$IP_CLOUDFLARED" "Cloudflared"
                 _fix_ip IP_NPM "$IP_NPM" "NPM"
                 _fix_ip IP_FRIGATE "$IP_FRIGATE" "Frigate"
+                _fix_ip IP_ADGUARD "$IP_ADGUARD" "AdGuard Home"
                 msg_ok "IP-adresser justerade."
             else
                 msg_info "OK — du kan ändra IP:erna manuellt i setup.env senare."
@@ -563,12 +587,14 @@ DO_FRIGATE="y"
 DO_CAMERAS="y"
 DO_CF_DNS="y"
 DO_NPM_CONF="y"
+DO_ADGUARD="y"
 DO_RDP="n"
 
 # Inventera vad som redan är klart
 STATUS_HOST="saknas"
 STATUS_HA="saknas"
 STATUS_CF="saknas"
+STATUS_ADGUARD="saknas"
 STATUS_NPM="saknas"
 STATUS_FRIGATE="saknas"
 STATUS_CAMERAS="saknas"
@@ -579,6 +605,7 @@ STATUS_RDP="saknas"
 [ "$(get_state host_configured)" == "true" ] && STATUS_HOST="klar"
 [ -n "$(resolve_vm_id "ha" "$IP_HA")" ] && STATUS_HA="installerad"
 [ -n "$(resolve_ct_id "cloudflared" "$IP_CLOUDFLARED")" ] && STATUS_CF="installerad"
+[ -n "$(resolve_ct_id "adguard" "${IP_ADGUARD:-104}")" ] && STATUS_ADGUARD="installerad"
 [ -n "$(resolve_ct_id "npm" "$IP_NPM")" ] && STATUS_NPM="installerad"
 [ -n "$(resolve_ct_id "frigate" "$IP_FRIGATE")" ] && STATUS_FRIGATE="installerad"
 [ "$(get_state cameras_configured)" == "true" ] && STATUS_CAMERAS="klar"
@@ -595,6 +622,7 @@ DONE_COUNT=0
 [ "$STATUS_FRIGATE" != "saknas" ] && DONE_COUNT=$((DONE_COUNT + 1))
 [ "$STATUS_CAMERAS" != "saknas" ] && DONE_COUNT=$((DONE_COUNT + 1))
 [ "$STATUS_CFDNS" != "saknas" ] && DONE_COUNT=$((DONE_COUNT + 1))
+[ "$STATUS_ADGUARD" != "saknas" ] && DONE_COUNT=$((DONE_COUNT + 1))
 [ "$STATUS_NPMCONF" != "saknas" ] && DONE_COUNT=$((DONE_COUNT + 1))
 [ "$STATUS_RDP" != "saknas" ] && DONE_COUNT=$((DONE_COUNT + 1))
 
@@ -605,6 +633,7 @@ if [ "$HEADLESS" == "true" ]; then
     [ "$STATUS_HOST" != "saknas" ] && DO_HOST="n"
     [ "$STATUS_HA" != "saknas" ] && DO_HA="n"
     [ "$STATUS_CF" != "saknas" ] && DO_CF="n"
+    [ "$STATUS_ADGUARD" != "saknas" ] && DO_ADGUARD="n"
     [ "$STATUS_NPM" != "saknas" ] && DO_NPM="n"
     [ "$STATUS_FRIGATE" != "saknas" ] && DO_FRIGATE="n"
     [ "$STATUS_RDP" != "saknas" ] && DO_RDP="n" || DO_RDP="y"
@@ -655,6 +684,7 @@ else
                 [ "$STATUS_HOST" != "saknas" ] && DO_HOST="n"
                 [ "$STATUS_HA" != "saknas" ] && DO_HA="n"
                 [ "$STATUS_CF" != "saknas" ] && DO_CF="n"
+                [ "$STATUS_ADGUARD" != "saknas" ] && DO_ADGUARD="n"
                 [ "$STATUS_NPM" != "saknas" ] && DO_NPM="n"
                 [ "$STATUS_FRIGATE" != "saknas" ] && DO_FRIGATE="n"
                 [ "$STATUS_CAMERAS" != "saknas" ] && DO_CAMERAS="n"
@@ -715,21 +745,22 @@ else
             tty_printf "  ${CYAN}║${NC}  1. $(status_icon $STATUS_HOST) Proxmox Host         %-16s ${CYAN}║${NC}\n" "($STATUS_HOST)"
             tty_printf "  ${CYAN}║${NC}  2. $(status_icon $STATUS_HA) Home Assistant       %-16s ${CYAN}║${NC}\n" "($STATUS_HA)"
             tty_printf "  ${CYAN}║${NC}  3. $(status_icon $STATUS_CF) Cloudflared          %-16s ${CYAN}║${NC}\n" "($STATUS_CF)"
-            tty_printf "  ${CYAN}║${NC}  4. $(status_icon $STATUS_NPM) NPM                  %-16s ${CYAN}║${NC}\n" "($STATUS_NPM)"
-            tty_printf "  ${CYAN}║${NC}  5. $(status_icon $STATUS_FRIGATE) Frigate              %-16s ${CYAN}║${NC}\n" "($STATUS_FRIGATE)"
-            tty_printf "  ${CYAN}║${NC}  6. $(status_icon $STATUS_CAMERAS) Kameror & Config     %-16s ${CYAN}║${NC}\n" "($STATUS_CAMERAS)"
-            tty_printf "  ${CYAN}║${NC}  7. $(status_icon $STATUS_CFDNS) Cloudflare DNS       %-16s ${CYAN}║${NC}\n" "($STATUS_CFDNS)"
-            tty_printf "  ${CYAN}║${NC}  8. $(status_icon $STATUS_NPMCONF) NPM Auto-Config      %-16s ${CYAN}║${NC}\n" "($STATUS_NPMCONF)"
-            tty_printf "  ${CYAN}║${NC}  9. $(status_icon $STATUS_RDP) Remote Desktop      %-16s ${CYAN}║${NC}\n" "($STATUS_RDP)"
+            tty_printf "  ${CYAN}║${NC}  4. $(status_icon $STATUS_ADGUARD) AdGuard Home         %-16s ${CYAN}║${NC}\n" "($STATUS_ADGUARD)"
+            tty_printf "  ${CYAN}║${NC}  5. $(status_icon $STATUS_NPM) NPM                  %-16s ${CYAN}║${NC}\n" "($STATUS_NPM)"
+            tty_printf "  ${CYAN}║${NC}  6. $(status_icon $STATUS_FRIGATE) Frigate              %-16s ${CYAN}║${NC}\n" "($STATUS_FRIGATE)"
+            tty_printf "  ${CYAN}║${NC}  7. $(status_icon $STATUS_CAMERAS) Kameror & Config     %-16s ${CYAN}║${NC}\n" "($STATUS_CAMERAS)"
+            tty_printf "  ${CYAN}║${NC}  8. $(status_icon $STATUS_CFDNS) Cloudflare DNS       %-16s ${CYAN}║${NC}\n" "($STATUS_CFDNS)"
+            tty_printf "  ${CYAN}║${NC}  9. $(status_icon $STATUS_NPMCONF) NPM Auto-Config      %-16s ${CYAN}║${NC}\n" "($STATUS_NPMCONF)"
+            tty_printf "  ${CYAN}║${NC} 10. $(status_icon $STATUS_RDP) Remote Desktop      %-16s ${CYAN}║${NC}\n" "($STATUS_RDP)"
             tty_echo "  ${CYAN}╠════════════════════════════════════════════════════════╣${NC}"
             tty_echo "  ${CYAN}║${NC}                                                        ${CYAN}║${NC}"
             tty_echo "  ${CYAN}║${NC}  ${BOLD}A${NC} = Kör ALLT                                         ${CYAN}║${NC}"
-            tty_echo "  ${CYAN}║${NC}  ${BOLD}1-9${NC} = Välj specifika steg (t.ex. ${GREEN}6,9${NC})               ${CYAN}║${NC}"
+            tty_echo "  ${CYAN}║${NC}  ${BOLD}1-10${NC} = Välj specifika steg (t.ex. ${GREEN}6,10${NC})             ${CYAN}║${NC}"
             tty_echo "  ${CYAN}║${NC}  ${BOLD}Q${NC} = Avsluta                                            ${CYAN}║${NC}"
             tty_echo "  ${CYAN}║${NC}                                                        ${CYAN}║${NC}"
             tty_echo "  ${CYAN}╚════════════════════════════════════════════════════════╝${NC}"
             tty_echo ""
-            tty_printf "  ${BOLD}Välj [A/1-9/Q]: ${NC}"
+            tty_printf "  ${BOLD}Välj [A/1-10/Q]: ${NC}"
             tty_read MENU_CHOICE
 
             case "${MENU_CHOICE^^}" in
@@ -742,7 +773,7 @@ else
                     ;;
                 *)
                     # Specifika steg
-                    DO_HOST="n"; DO_HA="n"; DO_CF="n"; DO_NPM="n"
+                    DO_HOST="n"; DO_HA="n"; DO_CF="n"; DO_ADGUARD="n"; DO_NPM="n"
                     DO_FRIGATE="n"; DO_CAMERAS="n"; DO_CF_DNS="n"; DO_NPM_CONF="n"; DO_RDP="n"
                     SELECTED=$(echo "$MENU_CHOICE" | tr ',' ' ' | tr -s ' ')
                     for sel in $SELECTED; do
@@ -750,12 +781,13 @@ else
                             1) DO_HOST="y" ;;
                             2) DO_HA="y" ;;
                             3) DO_CF="y" ;;
-                            4) DO_NPM="y" ;;
-                            5) DO_FRIGATE="y" ;;
-                            6) DO_CAMERAS="y" ;;
-                            7) DO_CF_DNS="y" ;;
-                            8) DO_NPM_CONF="y" ;;
-                            9) DO_RDP="y" ;;
+                            4) DO_ADGUARD="y" ;;
+                            5) DO_NPM="y" ;;
+                            6) DO_FRIGATE="y" ;;
+                            7) DO_CAMERAS="y" ;;
+                            8) DO_CF_DNS="y" ;;
+                            9) DO_NPM_CONF="y" ;;
+                            10) DO_RDP="y" ;;
                             *) msg_warn "Okänt val: $sel (ignoreras)" ;;
                         esac
                     done
@@ -912,7 +944,7 @@ elif [ "$(get_state host_configured)" == "true" ]; then
 fi
 
 # Hämta template om vi behöver LXC
-if [ "$DO_CF" == "y" ] || [ "$DO_NPM" == "y" ] || [ "$DO_FRIGATE" == "y" ] || [ "$DO_RDP" == "y" ]; then
+if [ "$DO_CF" == "y" ] || [ "$DO_ADGUARD" == "y" ] || [ "$DO_NPM" == "y" ] || [ "$DO_FRIGATE" == "y" ] || [ "$DO_RDP" == "y" ]; then
     if [ "$DRY_RUN" != "true" ]; then
         TEMPLATE_PATH=$(get_debian_template)
         if [ -z "$TEMPLATE_PATH" ]; then
@@ -921,7 +953,7 @@ if [ "$DO_CF" == "y" ] || [ "$DO_NPM" == "y" ] || [ "$DO_FRIGATE" == "y" ] || [ 
             if ! ask_yes_no "Vill du fortsätta ändå (hoppar över container-skapning)?" "N"; then
                 exit 1
             fi
-            DO_CF="n"; DO_NPM="n"; DO_FRIGATE="n"; DO_RDP="n"
+            DO_CF="n"; DO_ADGUARD="n"; DO_NPM="n"; DO_FRIGATE="n"; DO_RDP="n"
         fi
     else
         msg_dry "Skulle ladda ner Debian LXC-template"
@@ -968,6 +1000,29 @@ if [ "$DO_CF" == "y" ]; then
         if ! bash modules/03-cloudflared.sh "$TEMPLATE_PATH"; then
             msg_err "Ett fel uppstod under installationen av Cloudflared."
             rollback_offer "$IP_CLOUDFLARED" "Cloudflared"
+            if [ "$HEADLESS" == "true" ]; then
+                msg_warn "(headless) Felet loggas, fortsätter med nästa steg..."
+            elif ! ask_yes_no "Vill du fortsätta med nästa steg ändå?" "N"; then
+                exit 1
+            fi
+        else
+            rollback_clear
+        fi
+    fi
+fi
+
+# 4.4.5 AdGuard Home
+CURRENT_STEP=$((CURRENT_STEP + 1))
+show_progress $CURRENT_STEP $TOTAL_STEPS "AdGuard Home"
+if [ "$DO_ADGUARD" == "y" ]; then
+    print_banner "AdGuard Home (CT ${IP_ADGUARD:-104})" "DNS-server med annonsblockering och split-DNS.\nIntern trafik pekar direkt på tjänster istället för att gå via Cloudflare Tunnel."
+    if [ "$DRY_RUN" == "true" ]; then
+        msg_dry "Skulle skapa CT ${IP_ADGUARD:-104} med AdGuard Home"
+    else
+        rollback_register "ct" "${IP_ADGUARD:-104}" "AdGuard Home"
+        if ! bash modules/03.5-adguard.sh "$TEMPLATE_PATH"; then
+            msg_err "Ett fel uppstod under installationen av AdGuard Home."
+            rollback_offer "${IP_ADGUARD:-104}" "AdGuard Home"
             if [ "$HEADLESS" == "true" ]; then
                 msg_warn "(headless) Felet loggas, fortsätter med nästa steg..."
             elif ! ask_yes_no "Vill du fortsätta med nästa steg ändå?" "N"; then

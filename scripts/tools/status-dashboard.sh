@@ -187,6 +187,7 @@ PVE_IP=$(hostname -I | awk '{print $1}')
 # Tjänst-IP:er
 HA_IP=$(get_ha_ip)
 CF_IP=$(get_ct_ip "cloudflared" "${IP_CLOUDFLARED:-101}")
+AGH_IP=$(get_ct_ip "adguard" "${IP_ADGUARD:-104}")
 FRIG_IP=$(get_ct_ip "frigate" "${IP_FRIGATE:-103}")
 GUAC_IP=$(get_ct_ip "guacamole" "${IP_GUACAMOLE:-107}")
 DESK_IP=$(get_ct_ip "desktop" "${IP_DESKTOP:-108}")
@@ -199,6 +200,8 @@ DESK_IP=$(get_ct_ip "desktop" "${IP_DESKTOP:-108}")
 PVE_INT=$(check_internal "$PVE_IP" 8006)
 HA_INT=$(check_internal "$HA_IP" 8123)
 NPM_INT=$(check_internal "$NPM_IP" 81)
+AGH_INT=$(check_internal "$AGH_IP" 53)
+AGH_WEB_INT=$(check_internal "$AGH_IP" 80)
 FRIG_INT=$(check_internal "$FRIG_IP" 5000)
 GUAC_INT=$(check_internal "$GUAC_IP" 8080)
 
@@ -339,6 +342,13 @@ if [ "$JSON_OUTPUT" == "true" ]; then
       "npm": {"status": "${FRIG_NPM}"}
     },
     {
+      "name": "AdGuard Home",
+      "internal": {"ip": "${AGH_IP:-null}", "port": 53, "url": "http://${AGH_IP:-unknown}", "status": "${AGH_STATUS:-not_configured}"},
+      "external": {"url": null, "status": "not_applicable"},
+      "npm": {"status": "not_applicable"},
+      "dns": {"port": 53, "status": "${AGH_INT:-not_configured}"}
+    },
+    {
       "name": "NPM Admin",
       "internal": {"ip": "${NPM_IP:-unknown}", "port": 81, "url": "http://${NPM_IP:-unknown}:81", "status": "${NPM_INT}"},
       "external": {"url": null, "status": "not_applicable"},
@@ -415,6 +425,14 @@ FRIG_EXT_URL="${FRIG_DOMAIN:+https://${FRIG_DOMAIN}}"
 FRIG_NPM_SHORT=$(echo "$FRIG_NPM" | cut -d'|' -f1)
 print_row "Frigate NVR" "$FRIG_INT_URL" "$FRIG_INT" "$FRIG_EXT_URL" "$FRIG_EXT" "${FRIG_NPM_SHORT:-—}" "${FRIG_NPM_SHORT:-missing}"
 
+# AdGuard Home
+AGH_INT_URL="${AGH_IP:+http://${AGH_IP} (DNS: :53)}"
+[ -z "$AGH_IP" ] && AGH_INT_URL="(ej installerad)"
+AGH_STATUS="down"
+[ "$AGH_INT" == "up" ] && AGH_STATUS="up"
+[ "$AGH_WEB_INT" == "up" ] && AGH_STATUS="up"
+print_row "AdGuard Home" "$AGH_INT_URL" "$AGH_STATUS" "— (intern DNS)" "not_configured" "—" "not_configured"
+
 # NPM Admin (bara intern)
 NPM_INT_URL="${NPM_IP:+http://${NPM_IP}:81}"
 [ -z "$NPM_IP" ] && NPM_INT_URL="(IP okänd)"
@@ -459,6 +477,7 @@ echo -e "    Proxmox:        ${BOLD}https://${PVE_IP}:8006${NC}"
 [ -n "$HA_IP" ] && echo -e "    Home Assistant:  ${BOLD}http://${HA_IP}:8123${NC}"
 [ -n "$NPM_IP" ] && echo -e "    NPM Admin:      ${BOLD}http://${NPM_IP}:81${NC}"
 [ -n "$FRIG_IP" ] && echo -e "    Frigate:        ${BOLD}http://${FRIG_IP}:5000${NC}"
+[ -n "$AGH_IP" ] && echo -e "    AdGuard Home:   ${BOLD}http://${AGH_IP}${NC} (DNS: ${AGH_IP}:53)"
 [ -n "$GUAC_IP" ] && echo -e "    Guacamole:      ${BOLD}http://${GUAC_IP}:8080${NC}"
 
 # Extern åtkomst-info
@@ -506,6 +525,12 @@ fi
 if echo "$HA_NPM" | grep -q "missing"; then
     echo -e "  ${YELLOW}⚠${NC} Home Assistant saknar NPM-proxy — extern åtkomst fungerar inte."
     echo -e "    Kör: ${YELLOW}sudo bash setup.sh${NC} (välj NPM-config)"
+    RECS=$((RECS + 1))
+fi
+
+if [ "$AGH_STATUS" == "down" ] && [ -n "$AGH_IP" ]; then
+    echo -e "  ${YELLOW}⚠${NC} AdGuard Home svarar inte. DNS-blockering och split-DNS inaktivt."
+    echo -e "    Kontrollera: pct exec ${IP_ADGUARD:-104} -- systemctl status AdGuardHome"
     RECS=$((RECS + 1))
 fi
 

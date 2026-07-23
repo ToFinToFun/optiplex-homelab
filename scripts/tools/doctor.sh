@@ -373,7 +373,60 @@ if command -v nft &>/dev/null; then
 fi
 
 # ============================================================
-# 8. NPM KONFIGURATION (SSL, WebSockets, IP-mismatch)
+# 8. ADGUARD HOME
+# ============================================================
+msg_header "AdGuard Home (DNS)"
+
+if [ "$NO_ROOT" != "true" ]; then
+    AGH_ID="${IP_ADGUARD:-104}"
+    if pct status $AGH_ID 2>/dev/null | grep -q "running"; then
+        AGH_IP=$(pct exec $AGH_ID -- hostname -I 2>/dev/null | awk '{print $1}')
+        [ -z "$AGH_IP" ] && AGH_IP="${NETWORK_PREFIX:-192.168.1}.${AGH_ID}"
+        msg_ok "AdGuard Home CT $AGH_ID kör (IP: $AGH_IP)"
+        
+        # Kontrollera att DNS svarar
+        if pct exec $AGH_ID -- bash -c "nslookup cloudflare.com 127.0.0.1 2>/dev/null" | grep -q "Address"; then
+            msg_ok "DNS-upplösning fungerar"
+        else
+            msg_err "DNS svarar INTE på port 53!"
+            echo -e "    ${DIM}Kontrollera: pct exec $AGH_ID -- systemctl status AdGuardHome${NC}"
+            ISSUES=$((ISSUES + 1))
+        fi
+        
+        # Kontrollera att web-UI svarar
+        AGH_HTTP=$(pct exec $AGH_ID -- curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/ 2>/dev/null)
+        if [ "$AGH_HTTP" == "200" ] || [ "$AGH_HTTP" == "302" ]; then
+            msg_ok "Web-UI svarar (HTTP $AGH_HTTP)"
+        else
+            msg_warn "Web-UI svarar inte (HTTP $AGH_HTTP)"
+            WARNINGS=$((WARNINGS + 1))
+        fi
+        
+        # Kontrollera split-DNS rewrites
+        if [ -n "${CF_DOMAIN}" ] && [ -n "${SHARED_PASSWORD}" ]; then
+            REWRITE_COUNT=$(pct exec $AGH_ID -- curl -s -u "admin:${SHARED_PASSWORD}" \
+                'http://127.0.0.1/control/rewrite/list' 2>/dev/null | grep -c '"domain"' || echo "0")
+            if [ "${REWRITE_COUNT:-0}" -gt 0 ]; then
+                msg_ok "Split-DNS: ${REWRITE_COUNT} rewrites konfigurerade för *.${CF_DOMAIN}"
+            else
+                msg_warn "Inga split-DNS rewrites hittades för ${CF_DOMAIN}"
+                echo -e "    ${DIM}Kör modulen igen (steg 4) eller lägg till manuellt i AdGuard UI.${NC}"
+                WARNINGS=$((WARNINGS + 1))
+            fi
+        fi
+    elif pct status $AGH_ID 2>/dev/null | grep -q "stopped"; then
+        msg_warn "AdGuard Home CT $AGH_ID är stoppad"
+        echo -e "    ${DIM}Starta: pct start $AGH_ID${NC}"
+        WARNINGS=$((WARNINGS + 1))
+    else
+        msg_info "AdGuard Home är inte installerad (CT $AGH_ID finns inte)"
+    fi
+else
+    msg_info "(kräver root för AdGuard-kontroll)"
+fi
+
+# ============================================================
+# 9. NPM KONFIGURATION (SSL, WebSockets, IP-mismatch)
 # ============================================================
 msg_header "NPM Proxy-konfiguration"
 
