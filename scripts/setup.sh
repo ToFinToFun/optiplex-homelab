@@ -141,6 +141,60 @@ if [ "$HEADLESS" == "true" ]; then
         msg_info "Sen kan du köra: bash setup.sh --headless"
         exit 1
     fi
+    
+    # Ladda config för validering
+    source setup.env
+    
+    # ── Pre-flight checks ──────────────────────────────────────
+    echo -e "  ${BOLD}Pre-flight checks:${NC}"
+    HEADLESS_ABORT=false
+    
+    # 1. Lösenord måste finnas
+    if [ -z "${SHARED_PASSWORD:-$CT_PASSWORD}" ]; then
+        echo -e "    ${RED}✗${NC} SHARED_PASSWORD saknas i setup.env!"
+        HEADLESS_ABORT=true
+    else
+        echo -e "    ${GREEN}✓${NC} Lösenord konfigurerat"
+    fi
+    
+    # 2. Nätverk måste finnas
+    if [ -z "$NETWORK_PREFIX" ] || [ -z "$GATEWAY" ]; then
+        echo -e "    ${RED}✗${NC} NETWORK_PREFIX eller GATEWAY saknas i setup.env!"
+        HEADLESS_ABORT=true
+    else
+        echo -e "    ${GREEN}✓${NC} Nätverk: ${NETWORK_PREFIX}.0/24 (GW: ${GATEWAY})"
+    fi
+    
+    # 3. Kolla om BIOS-reboot behövs (varning, inte stopp)
+    HEADLESS_NEEDS_REBOOT=false
+    if [ "$(get_state needs_reboot 2>/dev/null)" == "true" ]; then
+        echo -e "    ${YELLOW}⚠${NC} Reboot krävs (BIOS-ändringar väntar) — Frigate kan inte installeras utan iGPU"
+        HEADLESS_NEEDS_REBOOT=true
+    elif [ ! -e /dev/dri/renderD128 ] 2>/dev/null; then
+        echo -e "    ${YELLOW}⚠${NC} iGPU ej tillgänglig — Frigate hoppas över (kräver reboot efter BIOS-fix)"
+        HEADLESS_NEEDS_REBOOT=true
+    else
+        echo -e "    ${GREEN}✓${NC} iGPU tillgänglig (Frigate kan installeras)"
+    fi
+    
+    # 4. Tunnel-token (info, inte stopp)
+    if [ -z "$CF_TUNNEL_TOKEN" ]; then
+        echo -e "    ${YELLOW}⚠${NC} CF_TUNNEL_TOKEN saknas — Cloudflared installeras men tunneln aktiveras inte"
+    else
+        echo -e "    ${GREEN}✓${NC} Cloudflare Tunnel-token finns"
+    fi
+    
+    echo ""
+    
+    if [ "$HEADLESS_ABORT" == "true" ]; then
+        msg_err "Pre-flight misslyckades! Fixa setup.env och försök igen."
+        msg_info "Kör: bash setup.sh (interaktivt) för att konfigurera."
+        exit 1
+    fi
+    
+    msg_ok "Pre-flight OK — startar headless-installation..."
+    echo ""
+    sleep 2
 fi
 
 msg_header "OptiPlex Homelab Installer"
@@ -1128,6 +1182,59 @@ EOF
 
     msg_ok "TODO-lista sparad: ${TODO_FILE}"
     msg_info "  Öppna med: cat ${TODO_FILE}"
+fi
+
+# ==========================================
+# Headless post-run sammanfattning
+# ==========================================
+if [ "$HEADLESS" == "true" ] && [ "$DRY_RUN" != "true" ]; then
+    echo ""
+    echo -e "${YELLOW}${BOLD}"
+    echo "  ┌──────────────────────────────────────────────────────────┐"
+    echo "  │  DU MÅSTE GÖRA FÖLJANDE MANUELLT:                        │"
+    echo "  └──────────────────────────────────────────────────────────┘"
+    echo -e "${NC}"
+    
+    HSTEP=1
+    
+    # Reboot behövs?
+    if [ "$(get_state needs_reboot)" == "true" ]; then
+        echo -e "  ${RED}${BOLD}${HSTEP}. STARTA OM SERVERN${NC}"
+        echo -e "     BIOS-ändringar kräver omstart för att träda i kraft."
+        echo -e "     Utan omstart: iGPU saknas → Frigate kan inte använda AI-detektering."
+        echo -e "     ${YELLOW}Kör: reboot${NC}"
+        echo -e "     ${DIM}Efter omstart, kör: bash setup.sh --headless (för att installera Frigate)${NC}"
+        echo ""
+        HSTEP=$((HSTEP + 1))
+    fi
+    
+    # Frigate hoppades över?
+    if ! check_id_exists ${IP_FRIGATE} 2>/dev/null; then
+        echo -e "  ${YELLOW}${BOLD}${HSTEP}. FRIGATE HOPPADES ÖVER${NC}"
+        echo -e "     Trolig orsak: iGPU ej tillgänglig (reboot behövs först)."
+        echo -e "     ${YELLOW}Kör efter reboot: bash setup.sh --headless${NC}"
+        echo ""
+        HSTEP=$((HSTEP + 1))
+    fi
+    
+    # Kameror, DNS, NPM-regler
+    echo -e "  ${BOLD}${HSTEP}. KONFIGURERA KAMEROR, DNS & NPM-REGLER${NC}"
+    echo -e "     Dessa hoppades över i headless-mode (kräver manuell input)."
+    echo -e "     ${YELLOW}Kör: bash setup.sh${NC}  (interaktivt, välj steg 6-8)"
+    echo ""
+    HSTEP=$((HSTEP + 1))
+    
+    # Tunnel-token
+    if [ -z "$CF_TUNNEL_TOKEN" ] && check_id_exists $IP_CLOUDFLARED 2>/dev/null; then
+        echo -e "  ${BOLD}${HSTEP}. LÄGG TILL CLOUDFLARE TUNNEL-TOKEN${NC}"
+        echo -e "     Utan token fungerar INTE extern åtkomst."
+        echo -e "     ${YELLOW}Kör: bash setup.sh${NC}  (du får frågan vid start)"
+        echo ""
+        HSTEP=$((HSTEP + 1))
+    fi
+    
+    echo -e "  ${DIM}Allt ovan är också sparat i: /opt/optiplex-homelab/TODO.md${NC}"
+    echo ""
 fi
 
 echo ""

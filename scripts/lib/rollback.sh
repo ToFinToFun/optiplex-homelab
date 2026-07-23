@@ -64,7 +64,11 @@ rollback_offer() {
     echo "" > /dev/tty
     msg_warn "Installationen av ${name} (ID ${id}) misslyckades."
     
-    if ask_yes_no "Vill du ta bort den halvfärdiga ${name}-installationen?" "Y"; then
+    if [ "$HEADLESS" == "true" ]; then
+        # Headless: behåll alltid (säkrare än att radera automatiskt)
+        msg_info "(headless) Behåller halvfärdig ${name} (ID ${id}) för manuell inspektion."
+        msg_info "  Ta bort manuellt: pct destroy ${id} --purge"
+    elif ask_yes_no "Vill du ta bort den halvfärdiga ${name}-installationen?" "Y"; then
         rollback_last
     else
         msg_info "Behåller ${name} (ID ${id}). Du kan ta bort den manuellt med:"
