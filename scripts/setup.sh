@@ -33,6 +33,29 @@ for arg in "$@"; do
     esac
 done
 
+# Auto-uppdatera från GitHub (om git-repo finns)
+if [ "${_SELF_UPDATED:-}" != "1" ]; then
+    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+    if [ -d "$SCRIPT_DIR/../.git" ]; then
+        echo -e "\033[36m[i]\033[0m Kollar efter uppdateringar..."
+        cd "$SCRIPT_DIR/.."
+        OLD_HEAD=$(git rev-parse HEAD 2>/dev/null)
+        if git pull --quiet 2>/dev/null; then
+            NEW_HEAD=$(git rev-parse HEAD 2>/dev/null)
+            if [ "$OLD_HEAD" != "$NEW_HEAD" ]; then
+                echo -e "\033[32m[OK]\033[0m Ny version hämtad — startar om scriptet..."
+                cd "$SCRIPT_DIR"
+                export _SELF_UPDATED=1
+                exec bash "$0" "$@"
+            fi
+            echo -e "\033[32m[OK]\033[0m Redan senaste versionen."
+        else
+            echo -e "\033[33m[!]\033[0m Kunde inte uppdatera (ingen internet?). Kör med befintlig version."
+        fi
+        cd "$SCRIPT_DIR"
+    fi
+fi
+
 # Starta loggning (inte i dry-run)
 if [ "$DRY_RUN" != "true" ]; then
     exec > >(tee -a /var/log/optiplex-setup.log) 2>&1
