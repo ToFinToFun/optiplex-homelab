@@ -666,13 +666,14 @@ else
     fi
     tty_echo "  ${CYAN}║${NC}  ${YELLOW}2)${NC} Laga / Uppgradera befintligt                       ${CYAN}║${NC}"
     tty_echo "  ${CYAN}║${NC}  ${BLUE}3)${NC} Konfigurera (kameror, DNS, regler)                 ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}║${NC}  ${MAGENTA}4)${NC} Tillägg (Samba, Immich, NUT...)                    ${CYAN}║${NC}"
     tty_echo "  ${CYAN}║${NC}  ${GREEN}5)${NC} Reparera / Verifiera (IP + NPM + status)           ${CYAN}║${NC}"
-    tty_echo "  ${CYAN}║${NC}  ${MAGENTA}4)${NC} Avancerat (välj enskilda steg)                     ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}║${NC}  ${MAGENTA}6)${NC} Avancerat (välj enskilda steg)                     ${CYAN}║${NC}"
     tty_echo "  ${CYAN}║${NC}  ${RED}Q)${NC} Avsluta                                             ${CYAN}║${NC}"
     tty_echo "  ${CYAN}║${NC}                                                        ${CYAN}║${NC}"
     tty_echo "  ${CYAN}╚════════════════════════════════════════════════════════╝${NC}"
     tty_echo ""
-    tty_printf "  ${BOLD}Välj [1-5/Q] (default: 1): ${NC}"
+    tty_printf "  ${BOLD}Välj [1-6/Q] (default: 1): ${NC}"
     tty_read TOP_CHOICE
 
     case "${TOP_CHOICE:-1}" in
@@ -737,6 +738,49 @@ else
             msg_info "Kör konfigurationssteg (kameror, DNS, NPM-regler)."
             ;;
         4)
+            # ===== TILLÄGG (Samba, Immich, NUT) =====
+            tty_echo ""
+            tty_echo "  ${BOLD}Tillägg — valfria tjänster:${NC}"
+            tty_echo ""
+            tty_echo "  ${GREEN}1)${NC} Samba         Nätverksdelad mapp (filserver för alla enheter)"
+            tty_echo "  ${GREEN}2)${NC} Immich        Self-hosted foto/video-backup (ersätter Google Photos)"
+            tty_echo "                    ${YELLOW}Krav: 4GB+ RAM, 2+ kärnor, 50GB+ disk${NC}"
+            tty_echo "  ${GREEN}3)${NC} NUT           UPS-övervakning (kräver USB-ansluten UPS)"
+            tty_echo ""
+            tty_echo "  ${BOLD}A${NC} = Alla tillägg | ${BOLD}Q${NC} = Tillbaka"
+            tty_echo ""
+            tty_printf "  ${BOLD}Välj [1-3/A/Q]: ${NC}"
+            tty_read ADDON_CHOICE
+
+            # Sätt alla grundmoduler till n
+            DO_HOST="n"; DO_HA="n"; DO_CF="n"; DO_ADGUARD="n"; DO_NPM="n"
+            DO_FRIGATE="n"; DO_CAMERAS="n"; DO_CF_DNS="n"; DO_NPM_CONF="n"; DO_RDP="n"
+            DO_SAMBA="n"; DO_IMMICH="n"; DO_NUT="n"
+
+            case "${ADDON_CHOICE^^}" in
+                1) DO_SAMBA="y" ;;
+                2) DO_IMMICH="y" ;;
+                3) DO_NUT="y" ;;
+                A) DO_SAMBA="y"; DO_IMMICH="y"; DO_NUT="y" ;;
+                Q|q|"")
+                    msg_info "Tillbaka till huvudmenyn."
+                    exec bash "$0" "$@"
+                    ;;
+                *)
+                    # Komma-separerade val
+                    SELECTED=$(echo "$ADDON_CHOICE" | tr ',' ' ' | tr -s ' ')
+                    for sel in $SELECTED; do
+                        case "$sel" in
+                            1) DO_SAMBA="y" ;;
+                            2) DO_IMMICH="y" ;;
+                            3) DO_NUT="y" ;;
+                            *) msg_warn "Okänt val: $sel" ;;
+                        esac
+                    done
+                    ;;
+            esac
+            ;;
+        6)
             # ===== AVANCERAT (befintlig detaljerad meny) =====
             tty_echo ""
             tty_echo "  ${CYAN}╔════════════════════════════════════════════════════════╗${NC}"
@@ -1306,6 +1350,48 @@ if [ "$DO_RDP" == "y" ]; then
             msg_err "Remote Desktop-installationen avslutades med fel."
         else
             set_state rdp_configured true
+        fi
+    fi
+fi
+
+# ==========================================
+# TILLÄGG (Samba, Immich, NUT)
+# ==========================================
+if [ "${DO_SAMBA:-n}" == "y" ]; then
+    print_banner "Samba" "Nätverksdelad mapp (filserver för alla enheter i LAN)."
+    if [ "$DRY_RUN" == "true" ]; then
+        msg_dry "Skulle skapa Samba CT (${IP_SAMBA}) med delad mapp"
+    else
+        if ! bash modules/10-samba.sh "$TEMPLATE_PATH"; then
+            msg_err "Samba-installationen avslutades med fel."
+        else
+            set_state samba_configured true
+        fi
+    fi
+fi
+
+if [ "${DO_IMMICH:-n}" == "y" ]; then
+    print_banner "Immich" "Self-hosted foto/video-backup (ersätter Google Photos)."
+    if [ "$DRY_RUN" == "true" ]; then
+        msg_dry "Skulle skapa Immich CT (${IP_IMMICH}) med Docker + PostgreSQL + ML"
+    else
+        if ! bash modules/11-immich.sh "$TEMPLATE_PATH"; then
+            msg_err "Immich-installationen avslutades med fel."
+        else
+            set_state immich_configured true
+        fi
+    fi
+fi
+
+if [ "${DO_NUT:-n}" == "y" ]; then
+    print_banner "NUT" "UPS-övervakning (Network UPS Tools)."
+    if [ "$DRY_RUN" == "true" ]; then
+        msg_dry "Skulle skapa NUT CT (${IP_NUT}) med USB UPS passthrough"
+    else
+        if ! bash modules/12-nut.sh "$TEMPLATE_PATH"; then
+            msg_err "NUT-installationen avslutades med fel."
+        else
+            set_state nut_configured true
         fi
     fi
 fi

@@ -530,7 +530,121 @@ else
 fi
 
 # ============================================================
-# 9. SAMMANFATTNING
+# 9. VERSIONSCHECK (GitHub API)
+# ============================================================
+echo ""
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "  ${BOLD}9. Tillgängliga uppdateringar${NC}"
+echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+
+# Funktion: Hämta senaste version från GitHub
+get_latest_version() {
+    local repo="$1"
+    local latest
+    latest=$(curl -sf "https://api.github.com/repos/${repo}/releases/latest" 2>/dev/null | grep -oP '"tag_name":\s*"\K[^"]+' | sed 's/^v//')
+    echo "$latest"
+}
+
+# Funktion: Hämta installerad version
+get_installed_version() {
+    local service="$1"
+    local ctid="$2"
+    case "$service" in
+        frigate)
+            if [ -n "$ctid" ] && pct status "$ctid" 2>/dev/null | grep -q running; then
+                pct exec "$ctid" -- docker inspect frigate 2>/dev/null | grep -oP '"FRIGATE_VERSION=\K[^"]+' | head -1
+            fi
+            ;;
+        immich)
+            if [ -n "$ctid" ] && pct status "$ctid" 2>/dev/null | grep -q running; then
+                pct exec "$ctid" -- docker inspect immich-server 2>/dev/null | grep -oP '"com.docker.compose.version":\s*"\K[^"]+' | head -1
+                # Alternativ: kolla .env
+                pct exec "$ctid" -- grep 'IMMICH_VERSION' /opt/immich/.env 2>/dev/null | cut -d= -f2 | sed 's/^v//'
+            fi
+            ;;
+        adguard)
+            if [ -n "$ctid" ] && pct status "$ctid" 2>/dev/null | grep -q running; then
+                pct exec "$ctid" -- /opt/AdGuardHome/AdGuardHome --version 2>/dev/null | grep -oP 'v\K[0-9.]+'
+            fi
+            ;;
+        npm)
+            if [ -n "$ctid" ] && pct status "$ctid" 2>/dev/null | grep -q running; then
+                pct exec "$ctid" -- docker inspect nginx-proxy-manager 2>/dev/null | grep -oP '"com.github.jc21.version":\s*"\K[^"]+' | head -1
+            fi
+            ;;
+    esac
+}
+
+UPDATES_AVAILABLE=0
+
+# Frigate
+if [ -n "${IP_FRIGATE}" ] && [ "$NO_ROOT" == "false" ]; then
+    FRIG_LATEST=$(get_latest_version "blakeblackshear/frigate")
+    FRIG_CURRENT=$(get_installed_version "frigate" "${IP_FRIGATE}")
+    if [ -n "$FRIG_LATEST" ] && [ -n "$FRIG_CURRENT" ]; then
+        if [ "$FRIG_LATEST" != "$FRIG_CURRENT" ]; then
+            msg_warn "Frigate: ${FRIG_CURRENT} → ${FRIG_LATEST} (uppdatering tillgänglig)"
+            msg_info "  Uppgradera via: bash setup.sh → Meny 2 (Laga/Uppgradera)"
+            UPDATES_AVAILABLE=$((UPDATES_AVAILABLE + 1))
+        else
+            msg_ok "Frigate: ${FRIG_CURRENT} (senaste)"
+        fi
+    elif [ -n "$FRIG_LATEST" ]; then
+        msg_info "Frigate senaste: ${FRIG_LATEST} (installerad version okänd)"
+    fi
+fi
+
+# Immich
+if [ -n "${IP_IMMICH}" ] && [ "$NO_ROOT" == "false" ]; then
+    IMMICH_LATEST=$(get_latest_version "immich-app/immich")
+    IMMICH_CURRENT=$(get_installed_version "immich" "${IP_IMMICH}")
+    if [ -n "$IMMICH_LATEST" ] && [ -n "$IMMICH_CURRENT" ]; then
+        if [ "$IMMICH_LATEST" != "$IMMICH_CURRENT" ]; then
+            msg_warn "Immich: ${IMMICH_CURRENT} → ${IMMICH_LATEST} (uppdatering tillgänglig)"
+            msg_info "  Uppgradera: pct exec ${IP_IMMICH} -- /opt/immich/upgrade.sh"
+            UPDATES_AVAILABLE=$((UPDATES_AVAILABLE + 1))
+        else
+            msg_ok "Immich: ${IMMICH_CURRENT} (senaste)"
+        fi
+    elif [ -n "$IMMICH_LATEST" ]; then
+        msg_info "Immich senaste: ${IMMICH_LATEST}"
+    fi
+fi
+
+# AdGuard Home
+if [ -n "${IP_ADGUARD}" ] && [ "$NO_ROOT" == "false" ]; then
+    AGH_LATEST=$(get_latest_version "AdguardTeam/AdGuardHome")
+    AGH_CURRENT=$(get_installed_version "adguard" "${IP_ADGUARD}")
+    if [ -n "$AGH_LATEST" ] && [ -n "$AGH_CURRENT" ]; then
+        if [ "$AGH_LATEST" != "$AGH_CURRENT" ]; then
+            msg_warn "AdGuard Home: ${AGH_CURRENT} → ${AGH_LATEST} (uppdatering tillgänglig)"
+            msg_info "  Uppgradera: pct exec ${IP_ADGUARD} -- /opt/AdGuardHome/AdGuardHome --update"
+            UPDATES_AVAILABLE=$((UPDATES_AVAILABLE + 1))
+        else
+            msg_ok "AdGuard Home: ${AGH_CURRENT} (senaste)"
+        fi
+    elif [ -n "$AGH_LATEST" ]; then
+        msg_info "AdGuard Home senaste: ${AGH_LATEST}"
+    fi
+fi
+
+# NPM
+if [ -n "${IP_NPM}" ] && [ "$NO_ROOT" == "false" ]; then
+    NPM_LATEST=$(get_latest_version "NginxProxyManager/nginx-proxy-manager")
+    if [ -n "$NPM_LATEST" ]; then
+        msg_info "NPM senaste release: ${NPM_LATEST}"
+    fi
+fi
+
+if [ $UPDATES_AVAILABLE -eq 0 ]; then
+    msg_ok "Alla tjänster är uppdaterade (eller version kunde ej kontrolleras)"
+else
+    msg_warn "${UPDATES_AVAILABLE} uppdatering(ar) tillgänglig(a)"
+    WARNINGS=$((WARNINGS + UPDATES_AVAILABLE))
+fi
+
+# ============================================================
+# 10. SAMMANFATTNING
 # ============================================================
 echo ""
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
