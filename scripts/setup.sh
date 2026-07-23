@@ -80,6 +80,7 @@ for fn in msg_info msg_ok msg_warn msg_err msg_skip show_progress ask_yes_no ask
           check_is_proxmox check_id_exists get_debian_template find_storage_pool \
           resolve_ct_id resolve_vm_id find_ct_by_hostname find_vm_by_name \
           detect_network confirm_network check_ip_free find_free_ip verify_planned_ips get_net0_param discover_ct_ip \
+          show_bios_status \
           rollback_register rollback_offer rollback_clear; do
     if ! type "$fn" &>/dev/null; then
         echo "FATAL: Funktion '$fn' saknas! Kontrollera att lib/-filerna är kompletta."
@@ -282,7 +283,7 @@ msg_header "BIOS & Hårdvarustatus"
 show_bios_status
 
 # Erbjud BIOS-konfiguration direkt om problem hittades OCH host inte är konfigurerad
-if [ $BIOS_ISSUES -gt 0 ] && [ "$(get_state host_configured)" != "true" ]; then
+if [ ${BIOS_ISSUES:-0} -gt 0 ] && [ "$(get_state host_configured)" != "true" ]; then
     tty_echo ""
     if ask_yes_no "Vill du konfigurera Proxmox Host nu (BIOS, repos, TRIM, udev)?" "Y"; then
         if [ "$DRY_RUN" == "true" ]; then
@@ -306,7 +307,7 @@ if [ $BIOS_ISSUES -gt 0 ] && [ "$(get_state host_configured)" != "true" ]; then
             fi
         fi
     fi
-elif [ $BIOS_ISSUES -eq 0 ]; then
+elif [ ${BIOS_ISSUES:-0} -eq 0 ]; then
     msg_ok "Hårdvaran är redo — fortsätter med konfiguration."
 fi
 
@@ -610,6 +611,9 @@ STATUS_CAMERAS="saknas"
 STATUS_CFDNS="saknas"
 STATUS_NPMCONF="saknas"
 STATUS_RDP="saknas"
+STATUS_SAMBA="saknas"
+STATUS_IMMICH="saknas"
+STATUS_NUT="saknas"
 
 [ "$(get_state host_configured)" == "true" ] && STATUS_HOST="klar"
 [ -n "$(resolve_vm_id "ha" "$IP_HA")" ] && STATUS_HA="installerad"
@@ -621,6 +625,9 @@ STATUS_RDP="saknas"
 [ "$(get_state cfdns_configured)" == "true" ] && STATUS_CFDNS="klar"
 [ "$(get_state npm_configured)" == "true" ] && STATUS_NPMCONF="klar"
 ([ -n "$(resolve_ct_id "guacamole" "${IP_GUACAMOLE:-107}")" ] || [ -n "$(resolve_ct_id "desktop" "${IP_DESKTOP:-108}")" ]) && STATUS_RDP="installerad"
+[ -n "${IP_SAMBA:-}" ] && [ -n "$(resolve_ct_id "samba" "${IP_SAMBA}")" ] && STATUS_SAMBA="installerad"
+[ -n "${IP_IMMICH:-}" ] && [ -n "$(resolve_ct_id "immich" "${IP_IMMICH}")" ] && STATUS_IMMICH="installerad"
+[ -n "${IP_NUT:-}" ] && [ -n "$(resolve_ct_id "nut" "${IP_NUT}")" ] && STATUS_NUT="installerad"
 
 # Räkna hur många som är klara
 DONE_COUNT=0
@@ -809,9 +816,9 @@ else
             tty_printf "  ${CYAN}║${NC}  9. $(status_icon $STATUS_NPMCONF) NPM Auto-Config      %-16s ${CYAN}║${NC}\n" "($STATUS_NPMCONF)"
             tty_printf "  ${CYAN}║${NC} 10. $(status_icon $STATUS_RDP) Remote Desktop      %-16s ${CYAN}║${NC}\n" "($STATUS_RDP)"
             tty_echo "  ${CYAN}║${NC}  ${DIM}--- Tillägg ---${NC}                                      ${CYAN}║${NC}"
-            tty_echo "  ${CYAN}║${NC} 11. [ ] Samba (fildelning)                              ${CYAN}║${NC}"
-            tty_echo "  ${CYAN}║${NC} 12. [ ] Immich (foto/video-backup)                      ${CYAN}║${NC}"
-            tty_echo "  ${CYAN}║${NC} 13. [ ] NUT (UPS-övervakning)                            ${CYAN}║${NC}"
+            tty_printf "  ${CYAN}║${NC} 11. $(status_icon $STATUS_SAMBA) Samba (fildelning)     %-16s ${CYAN}║${NC}\n" "($STATUS_SAMBA)"
+            tty_printf "  ${CYAN}║${NC} 12. $(status_icon $STATUS_IMMICH) Immich (foto-backup)  %-16s ${CYAN}║${NC}\n" "($STATUS_IMMICH)"
+            tty_printf "  ${CYAN}║${NC} 13. $(status_icon $STATUS_NUT) NUT (UPS)              %-16s ${CYAN}║${NC}\n" "($STATUS_NUT)"
             tty_echo "  ${CYAN}╠════════════════════════════════════════════════════════╣${NC}"
             tty_echo "  ${CYAN}║${NC}                                                        ${CYAN}║${NC}"
             tty_echo "  ${CYAN}║${NC}  ${BOLD}A${NC} = Kör ALLT                                         ${CYAN}║${NC}"
@@ -1490,7 +1497,8 @@ if [ "$DRY_RUN" != "true" ]; then
     fi
     
     # Kolla att containers inte har brandvägg aktiverad per-CT
-    for ct_id in $IP_CLOUDFLARED $IP_NPM $IP_FRIGATE; do
+    for ct_id in $IP_CLOUDFLARED $IP_NPM $IP_FRIGATE ${IP_ADGUARD:-} ${IP_GUACAMOLE:-} ${IP_DESKTOP:-} ${IP_SAMBA:-} ${IP_IMMICH:-} ${IP_NUT:-}; do
+        [ -z "$ct_id" ] && continue
         if [ -f "/etc/pve/firewall/${ct_id}.fw" ]; then
             CT_FW=$(grep -i "enable:" "/etc/pve/firewall/${ct_id}.fw" 2>/dev/null | awk '{print $2}')
             if [ "$CT_FW" == "1" ]; then
@@ -1564,7 +1572,7 @@ if check_id_exists ${IP_IMMICH:-111} 2>/dev/null; then
     printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "Immich" "http://${_sum_immich_ip}:2283" "Installerad"
 fi
 if check_id_exists ${IP_NUT:-112} 2>/dev/null; then
-    printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "NUT" "http://${_sum_nut_ip}:3493" "Installerad"
+    printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "NUT" "upsc ups@${_sum_nut_ip}" "Installerad"
 fi
 echo -e "${CYAN}└─────────────┴──────────────────────────────────┴──────────────────┘${NC}"
 
@@ -1694,7 +1702,7 @@ TODOEOF
 ## ${TODO_STEP}. Home Assistant — Reservera IP i router
 
 - [ ] Gå till din Unifi-router (eller annan DHCP-server)
-- [ ] Reservera IP **${NETWORK_PREFIX}.${IP_HA}** för HA-VM:ens MAC-adress
+- [ ] Reservera IP **${_sum_ha_ip}** för HA-VM:ens MAC-adress
 - [ ] Alternativt: Konfigurera statisk IP i HA: Settings → System → Network
 
 > HAOS använder DHCP som default. Utan reservation kan IP:n ändras vid omstart.
@@ -1710,7 +1718,7 @@ EOF
         cat >> "$TODO_FILE" << EOF
 ## ${TODO_STEP}. MQTT (Mosquitto) i Home Assistant
 
-- [ ] Öppna HA: http://${NETWORK_PREFIX}.${IP_HA}:8123
+- [ ] Öppna HA: http://${_sum_ha_ip}:8123
 - [ ] Gå till: Inställningar → Add-ons → Sök "Mosquitto broker" → Installera
 - [ ] Skapa MQTT-användare: Inställningar → Personer → Användare → Lägg till:
   - Användarnamn: **${SERVICE_USER:-frigate}**
@@ -1772,7 +1780,7 @@ EOF
         cat >> "$TODO_FILE" << EOF
 ## ${TODO_STEP}. Frigate — Zoner och masker
 
-- [ ] Öppna Frigate: http://${NETWORK_PREFIX}.${IP_FRIGATE}:5000
+- [ ] Öppna Frigate: http://${_sum_frigate_ip}:5000
 - [ ] Verifiera att alla kameror syns och AI-detektering fungerar
 - [ ] Rita zoner (områden där detektering ska ske) för varje kamera
 - [ ] Rita masker (områden att ignorera, t.ex. träd, vägar)
@@ -1832,7 +1840,7 @@ if [ "$HEADLESS" == "true" ] && [ "$DRY_RUN" != "true" ]; then
     # Kameror, DNS, NPM-regler
     echo -e "  ${BOLD}${HSTEP}. KONFIGURERA KAMEROR, DNS & NPM-REGLER${NC}"
     echo -e "     Dessa hoppades över i headless-mode (kräver manuell input)."
-    echo -e "     ${YELLOW}Kör: bash setup.sh${NC}  (interaktivt, välj steg 6-8)"
+    echo -e "     ${YELLOW}Kör: bash setup.sh${NC}  (interaktivt, välj meny 3 (Konfigurera))"
     echo ""
     HSTEP=$((HSTEP + 1))
     

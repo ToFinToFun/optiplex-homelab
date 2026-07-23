@@ -487,7 +487,7 @@ if [ -n "$IMMICH_IP" ]; then
     print_row "Immich" "http://${IMMICH_IP}:2283" "${IMMICH_INT:-down}" "$IMMICH_EXT_URL" "${IMMICH_EXT:-not_configured}" "—" "not_configured"
 fi
 if [ -n "$NUT_IP" ]; then
-    print_row "NUT (UPS)" "http://${NUT_IP}:3493" "${NUT_INT:-down}" "— (intern)" "not_configured" "—" "not_configured"
+    print_row "NUT (UPS)" "upsc ups@${NUT_IP}" "${NUT_INT:-down}" "— (intern)" "not_configured" "—" "not_configured"
 fi
 
 echo -e "  ${BOLD}└──────────────────────┴──────────────────────────────┴───────┴──────────────────────────────────┴───────┴──────────────┴───────┘${NC}"
@@ -518,7 +518,7 @@ echo -e "    Proxmox:        ${BOLD}https://${PVE_IP}:8006${NC}"
 [ -n "$GUAC_IP" ] && echo -e "    Guacamole:      ${BOLD}http://${GUAC_IP}:8080${NC}"
 [ -n "$SAMBA_IP" ] && echo -e "    Samba:          ${BOLD}//${SAMBA_IP}/share${NC} (SMB port 445)"
 [ -n "$IMMICH_IP" ] && echo -e "    Immich:         ${BOLD}http://${IMMICH_IP}:2283${NC}"
-[ -n "$NUT_IP" ] && echo -e "    NUT:            ${BOLD}http://${NUT_IP}:3493${NC} (UPS-status)"
+[ -n "$NUT_IP" ] && echo -e "    NUT:            ${BOLD}upsc ups@${NUT_IP}${NC} (NUT protocol, port 3493)"
 
 # Extern åtkomst-info
 if [ -n "$DOMAIN" ]; then

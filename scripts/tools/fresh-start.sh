@@ -46,7 +46,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 echo -ne "${BOLD}Är du HELT SÄKER? Skriv 'JA' för att fortsätta: ${NC}"
-tty_read CONFIRM
+read CONFIRM
 if [ "$CONFIRM" != "JA" ]; then
     echo ""
     echo -e "  ${GREEN}[OK]${NC} Avbrutet. Inget har ändrats."
@@ -68,10 +68,14 @@ IP_HA="${IP_HA:-100}"
 IP_CLOUDFLARED="${IP_CLOUDFLARED:-101}"
 IP_NPM="${IP_NPM:-102}"
 IP_FRIGATE="${IP_FRIGATE:-103}"
+IP_ADGUARD="${IP_ADGUARD:-104}"
 IP_GUACAMOLE="${IP_GUACAMOLE:-107}"
 IP_DESKTOP="${IP_DESKTOP:-108}"
+IP_SAMBA="${IP_SAMBA:-110}"
+IP_IMMICH="${IP_IMMICH:-111}"
+IP_NUT="${IP_NUT:-112}"
 
-for id in $IP_HA $IP_CLOUDFLARED $IP_NPM $IP_FRIGATE $IP_GUACAMOLE $IP_DESKTOP; do
+for id in $IP_HA $IP_CLOUDFLARED $IP_NPM $IP_FRIGATE $IP_ADGUARD $IP_GUACAMOLE $IP_DESKTOP $IP_SAMBA $IP_IMMICH $IP_NUT; do
     if qm status $id &>/dev/null 2>&1; then
         echo -e "  ${CYAN}→${NC} Stoppar och tar bort VM $id..."
         qm stop $id >/dev/null 2>&1 || true
@@ -93,7 +97,7 @@ echo -e "${CYAN}── Steg 2: Rensar lokal data ──${NC}"
 # Ta bort state och config
 rm -f "$INSTALL_DIR/scripts/.install_state" 2>/dev/null
 rm -f "$INSTALL_DIR/scripts/setup.env" 2>/dev/null
-rm -f "$INSTALL_DIR/scripts/TODO.md" 2>/dev/null
+rm -f "$INSTALL_DIR/TODO.md" 2>/dev/null
 rm -rf "$INSTALL_DIR/scripts/generated/" 2>/dev/null
 echo -e "  ${GREEN}✓${NC} State, config och genererade filer borttagna"
 

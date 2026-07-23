@@ -207,6 +207,12 @@ else
     check_ct_vm "$CF_ID" "Cloudflared" "ct"
     check_ct_vm "$NPM_ID" "NPM" "ct"
     check_ct_vm "$FRIG_ID" "Frigate" "ct"
+    [ -n "${IP_ADGUARD:-}" ] && check_ct_vm "${IP_ADGUARD}" "AdGuard Home" "ct"
+    [ -n "${IP_GUACAMOLE:-}" ] && check_ct_vm "${IP_GUACAMOLE}" "Guacamole" "ct"
+    [ -n "${IP_DESKTOP:-}" ] && check_ct_vm "${IP_DESKTOP}" "Desktop" "ct"
+    [ -n "${IP_SAMBA:-}" ] && check_ct_vm "${IP_SAMBA}" "Samba" "ct"
+    [ -n "${IP_IMMICH:-}" ] && check_ct_vm "${IP_IMMICH}" "Immich" "ct"
+    [ -n "${IP_NUT:-}" ] && check_ct_vm "${IP_NUT}" "NUT" "ct"
 fi
 
 # ============================================================
@@ -243,6 +249,22 @@ if [ "$NO_ROOT" != "true" ]; then
                     msg_ok "Docker (NPM): $line"
                 else
                     msg_warn "Docker (NPM): $line"
+                    WARNINGS=$((WARNINGS + 1))
+                fi
+            done <<< "$DOCKER_STATUS"
+        fi
+    fi
+
+    # Immich Docker (om installerad)
+    IMMICH_ID="${IP_IMMICH:-111}"
+    if [ -n "${IP_IMMICH:-}" ] && pct status $IMMICH_ID 2>/dev/null | grep -q "running"; then
+        DOCKER_STATUS=$(pct exec $IMMICH_ID -- docker ps --format "{{.Names}}: {{.Status}}" 2>/dev/null || echo "")
+        if [ -n "$DOCKER_STATUS" ]; then
+            while IFS= read -r line; do
+                if echo "$line" | grep -q "Up"; then
+                    msg_ok "Docker (Immich): $line"
+                else
+                    msg_warn "Docker (Immich): $line"
                     WARNINGS=$((WARNINGS + 1))
                 fi
             done <<< "$DOCKER_STATUS"
@@ -305,16 +327,50 @@ HA_ID="${IP_HA:-100}"
 FRIG_ID="${IP_FRIGATE:-103}"
 NPM_ID="${IP_NPM:-102}"
 
-check_port "${NW}.${HA_ID}" 8123 "Home Assistant"
-check_port "${NW}.${FRIG_ID}" 5000 "Frigate"
-check_port "${NW}.${NPM_ID}" 81 "NPM Admin"
+# Upptäck faktiska IP:er (hanterar DHCP/manuellt bytt IP)
+if [ "$NO_ROOT" != "true" ]; then
+    HA_IP=$(qm agent $HA_ID network-get-interfaces 2>/dev/null | grep -oP '"ip-address"\s*:\s*"\K192[^"]+' | head -1)
+    [ -z "$HA_IP" ] && HA_IP="${NW}.${HA_ID}"
+    FRIG_IP=$(pct exec $FRIG_ID -- hostname -I 2>/dev/null | awk '{print $1}')
+    [ -z "$FRIG_IP" ] && FRIG_IP="${NW}.${FRIG_ID}"
+    NPM_IP_CHECK=$(pct exec $NPM_ID -- hostname -I 2>/dev/null | awk '{print $1}')
+    [ -z "$NPM_IP_CHECK" ] && NPM_IP_CHECK="${NW}.${NPM_ID}"
+else
+    HA_IP="${NW}.${HA_ID}"
+    FRIG_IP="${NW}.${FRIG_ID}"
+    NPM_IP_CHECK="${NW}.${NPM_ID}"
+fi
+
+check_port "$HA_IP" 8123 "Home Assistant"
+check_port "$FRIG_IP" 5000 "Frigate"
+check_port "$NPM_IP_CHECK" 81 "NPM Admin"
+
+# Tilläggstjänster (om installerade)
+if [ -n "${IP_ADGUARD:-}" ]; then
+    AGH_CHK_IP="${NW}.${IP_ADGUARD}"
+    [ "$NO_ROOT" != "true" ] && pct status $IP_ADGUARD 2>/dev/null | grep -q running && \
+        AGH_CHK_IP=$(pct exec $IP_ADGUARD -- hostname -I 2>/dev/null | awk '{print $1}')
+    [ -n "$AGH_CHK_IP" ] && check_port "$AGH_CHK_IP" 53 "AdGuard DNS"
+fi
+if [ -n "${IP_SAMBA:-}" ]; then
+    SMB_CHK_IP="${NW}.${IP_SAMBA}"
+    [ "$NO_ROOT" != "true" ] && pct status $IP_SAMBA 2>/dev/null | grep -q running && \
+        SMB_CHK_IP=$(pct exec $IP_SAMBA -- hostname -I 2>/dev/null | awk '{print $1}')
+    [ -n "$SMB_CHK_IP" ] && check_port "$SMB_CHK_IP" 445 "Samba (SMB)"
+fi
+if [ -n "${IP_IMMICH:-}" ]; then
+    IMM_CHK_IP="${NW}.${IP_IMMICH}"
+    [ "$NO_ROOT" != "true" ] && pct status $IP_IMMICH 2>/dev/null | grep -q running && \
+        IMM_CHK_IP=$(pct exec $IP_IMMICH -- hostname -I 2>/dev/null | awk '{print $1}')
+    [ -n "$IMM_CHK_IP" ] && check_port "$IMM_CHK_IP" 2283 "Immich"
+fi
 
 # ============================================================
 # 6. MQTT
 # ============================================================
 msg_header "MQTT (Frigate → Home Assistant)"
 
-MQTT_HOST="${NW}.${HA_ID}"
+MQTT_HOST="$HA_IP"
 if nc -z -w 2 "$MQTT_HOST" 1883 2>/dev/null; then
     msg_ok "MQTT-broker: Svarar på ${MQTT_HOST}:1883"
 else
@@ -530,11 +586,11 @@ else
 fi
 
 # ============================================================
-# 9. VERSIONSCHECK (GitHub API)
+# 10. VERSIONSCHECK (GitHub API)
 # ============================================================
 echo ""
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "  ${BOLD}9. Tillgängliga uppdateringar${NC}"
+echo -e "  ${BOLD}10. Tillgängliga uppdateringar${NC}"
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 
 # Funktion: Hämta senaste version från GitHub
@@ -643,7 +699,7 @@ else
 fi
 
 # ============================================================
-# 10. SAMMANFATTNING
+# 11. SAMMANFATTNING
 # ============================================================
 echo ""
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
