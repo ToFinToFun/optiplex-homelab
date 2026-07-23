@@ -79,7 +79,7 @@ for fn in msg_info msg_ok msg_warn msg_err msg_skip show_progress ask_yes_no ask
           load_config save_config get_state set_state \
           check_is_proxmox check_id_exists get_debian_template find_storage_pool \
           resolve_ct_id resolve_vm_id find_ct_by_hostname find_vm_by_name \
-          detect_network confirm_network \
+          detect_network confirm_network check_ip_free find_free_ip verify_planned_ips get_net0_param discover_ct_ip \
           rollback_register rollback_offer rollback_clear; do
     if ! type "$fn" &>/dev/null; then
         echo "FATAL: Funktion '$fn' saknas! Kontrollera att lib/-filerna är kompletta."
@@ -209,6 +209,39 @@ if [ "$HEADLESS" == "true" ]; then
         echo -e "    ${YELLOW}⚠${NC} CF_TUNNEL_TOKEN saknas — Cloudflared installeras men tunneln aktiveras inte"
     else
         echo -e "    ${GREEN}✓${NC} Cloudflare Tunnel-token finns"
+    fi
+    
+    # 5. IP-konfliktcheck (bara vid statisk, auto-fixa i headless)
+    if [ "${USE_DHCP:-false}" != "true" ]; then
+        verify_planned_ips
+        IP_CONFLICTS=$?
+        if [ $IP_CONFLICTS -gt 0 ]; then
+            echo -e "    ${YELLOW}⚠${NC} ${IP_CONFLICTS} IP-konflikt(er) hittade — justerar automatiskt..."
+            # Auto-fixa: hitta nästa lediga IP för varje konflikt
+            for _svc in "IP_HA:${IP_HA}:HA" "IP_CLOUDFLARED:${IP_CLOUDFLARED}:Cloudflared" "IP_NPM:${IP_NPM}:NPM" "IP_FRIGATE:${IP_FRIGATE}:Frigate"; do
+                _var="${_svc%%:*}"; _rest="${_svc#*:}"; _val="${_rest%%:*}"; _name="${_rest#*:}"
+                _full="${NETWORK_PREFIX}.${_val}"
+                if ! check_ip_free "$_full"; then
+                    _new=$(find_free_ip "$NETWORK_PREFIX" "$_val")
+                    if [ -n "$_new" ]; then
+                        echo -e "    ${GREEN}✓${NC} ${_name}: ${_full} → ${NETWORK_PREFIX}.${_new}"
+                        eval "${_var}=${_new}"
+                    else
+                        echo -e "    ${RED}✗${NC} ${_name}: Ingen ledig IP hittad!"
+                        HEADLESS_ABORT=true
+                    fi
+                fi
+            done
+            # Spara justerade IP:er
+            if [ "$HEADLESS_ABORT" != "true" ]; then
+                save_config
+                chmod 600 setup.env 2>/dev/null
+            fi
+        else
+            echo -e "    ${GREEN}✓${NC} Alla planerade IP-adresser är lediga"
+        fi
+    else
+        echo -e "    ${GREEN}✓${NC} DHCP-läge — routern tilldelar IP"
     fi
     
     echo ""
@@ -434,10 +467,76 @@ else
     fi
     msg_info "Vald lagringspool för OS: $STORAGE_POOL"
     
-    IP_HA=$(ask_string "VM ID för Home Assistant (även sista delen av IP)" "100")
+    # ── DHCP vs Statisk IP ──────────────────────────────────────
+    tty_echo ""
+    tty_echo "  ${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
+    tty_echo "  ${CYAN}║${NC} ${BOLD}IP-adresstilldelning för containers${NC}                      ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}╠══════════════════════════════════════════════════════════╣${NC}"
+    tty_echo "  ${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}║${NC}  ${BOLD}1)${NC} Statiska IP-adresser (rekommenderat)                ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}║${NC}     ${DIM}Varje container får en fast IP. Enklast att hantera.${NC}   ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}║${NC}     ${DIM}Scriptet verifierar att IP:erna är lediga först.${NC}     ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}║${NC}  ${BOLD}2)${NC} DHCP (routern tilldelar IP)                          ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}║${NC}     ${DIM}Containers får IP från din router/DHCP-server.${NC}       ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}║${NC}     ${YELLOW}OBS: Du måste låsa IP:erna i routern efterhand!${NC}       ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
+    tty_echo ""
+    
+    if ask_yes_no "Använd statiska IP-adresser? (Nej = DHCP)" "Y"; then
+        USE_DHCP="false"
+    else
+        USE_DHCP="true"
+        msg_info "DHCP valt — containers får IP från routern."
+        msg_warn "VIKTIGT: Lås IP-adresserna i din router efter installationen!"
+        msg_info "Annars kan IP:erna ändras vid omstart."
+    fi
+    
+    # IP/ID-tilldelning (används som Proxmox-ID oavsett DHCP/statisk)
+    IP_HA=$(ask_string "VM ID för Home Assistant (även sista delen av IP vid statisk)" "100")
     IP_CLOUDFLARED=$(ask_string "CT ID för Cloudflared" "101")
     IP_NPM=$(ask_string "CT ID för NPM" "102")
     IP_FRIGATE=$(ask_string "CT ID för Frigate" "103")
+    
+    # ── IP-konfliktcheck (bara vid statisk) ────────────────────
+    if [ "$USE_DHCP" != "true" ]; then
+        tty_echo ""
+        verify_planned_ips
+        IP_CONFLICTS=$?
+        
+        if [ $IP_CONFLICTS -gt 0 ]; then
+            tty_echo ""
+            msg_warn "${IP_CONFLICTS} IP-adress(er) är redan upptagna!"
+            tty_echo ""
+            
+            if ask_yes_no "Vill du att scriptet föreslår lediga IP:er automatiskt?" "Y"; then
+                # Auto-fixa konflikter
+                _fix_ip() {
+                    local var_name="$1" current_val="$2" svc_name="$3"
+                    local full_ip="${NETWORK_PREFIX}.${current_val}"
+                    if ! check_ip_free "$full_ip"; then
+                        local new_val
+                        new_val=$(find_free_ip "$NETWORK_PREFIX" "$current_val")
+                        if [ -n "$new_val" ]; then
+                            msg_ok "${svc_name}: ${full_ip} → ${NETWORK_PREFIX}.${new_val}"
+                            eval "${var_name}=${new_val}"
+                        else
+                            msg_err "Kunde inte hitta ledig IP för ${svc_name}!"
+                        fi
+                    fi
+                }
+                _fix_ip IP_HA "$IP_HA" "Home Assistant"
+                _fix_ip IP_CLOUDFLARED "$IP_CLOUDFLARED" "Cloudflared"
+                _fix_ip IP_NPM "$IP_NPM" "NPM"
+                _fix_ip IP_FRIGATE "$IP_FRIGATE" "Frigate"
+                msg_ok "IP-adresser justerade."
+            else
+                msg_info "OK — du kan ändra IP:erna manuellt i setup.env senare."
+                msg_info "Eller kör wizarden igen: bash setup.sh"
+            fi
+        fi
+    fi
     
     if [ "$DRY_RUN" != "true" ]; then
         save_config
@@ -820,7 +919,10 @@ if [ "$DO_HA" == "y" ]; then
             fi
         else
             rollback_clear  # Lyckades — inget att ångra
-            wait_for_service "${NETWORK_PREFIX}.${IP_HA}" 8123 "Home Assistant" 180
+            # HA använder alltid DHCP internt (HAOS), upptäck IP
+            HA_ACTUAL_IP=$(pct exec "$IP_HA" -- bash -c "hostname -I 2>/dev/null" 2>/dev/null | awk '{print $1}' || true)
+            [ -z "$HA_ACTUAL_IP" ] && HA_ACTUAL_IP="${NETWORK_PREFIX}.${IP_HA}"
+            wait_for_service "$HA_ACTUAL_IP" 8123 "Home Assistant" 180
         fi
     fi
 fi
@@ -868,13 +970,15 @@ Ingen 'Force SSL' ska aktiveras i NPM (orsakar redirect-loop)."
             fi
         else
             rollback_clear
-            wait_for_service "${NETWORK_PREFIX}.${IP_NPM}" 81 "NPM" 60
+            # Upptäck NPM:s faktiska IP (DHCP eller statisk)
+            NPM_ACTUAL_IP=$(discover_ct_ip "${IP_NPM}" "${NETWORK_PREFIX}.${IP_NPM}" 15)
+            wait_for_service "$NPM_ACTUAL_IP" 81 "NPM" 60
             
             # Auto-byt NPM admin-lösenord från default till SHARED_PASSWORD
             if [ -n "$SHARED_PASSWORD" ]; then
                 msg_info "Byter NPM admin-lösenord från default..."
                 sleep 3  # Ge NPM tid att vara helt redo
-                NPM_IP="${NETWORK_PREFIX}.${IP_NPM}"
+                NPM_IP="$NPM_ACTUAL_IP"
                 # Logga in med default-credentials
                 TOKEN_RES=$(curl -s --max-time 10 -X POST "http://${NPM_IP}:81/api/tokens" \
                     -H "Content-Type: application/json" \
@@ -944,7 +1048,9 @@ if [ "$DO_FRIGATE" == "y" ]; then
                 fi
             else
                 rollback_clear
-                wait_for_service "${NETWORK_PREFIX}.${IP_FRIGATE}" 5000 "Frigate" 90
+                # Upptäck Frigates faktiska IP
+                FRIGATE_ACTUAL_IP=$(discover_ct_ip "${IP_FRIGATE}" "${NETWORK_PREFIX}.${IP_FRIGATE}" 15)
+                wait_for_service "$FRIGATE_ACTUAL_IP" 5000 "Frigate" 90
             fi
         fi
     fi
@@ -1175,16 +1281,28 @@ fi
 echo -e "${BOLD}Server:${NC} ${NODE_HOSTNAME:-$(hostname)} ($(hostname -I | awk '{print $1}'))"
 echo ""
 
+# Beräkna faktiska IP:er för sammanfattningen
+_sum_ha_ip="${HA_ACTUAL_IP:-${NETWORK_PREFIX}.${IP_HA}}"
+_sum_npm_ip="${NPM_ACTUAL_IP:-${NETWORK_PREFIX}.${IP_NPM}}"
+_sum_frigate_ip="${FRIGATE_ACTUAL_IP:-${NETWORK_PREFIX}.${IP_FRIGATE}}"
+_sum_guac_ip="${GUAC_ACTUAL_IP:-${NETWORK_PREFIX}.${IP_GUACAMOLE:-107}}"
+
 echo -e "${CYAN}┌─────────────┬──────────────────────────────────┬──────────────────┐${NC}"
 echo -e "${CYAN}│${NC} ${BOLD}Tjänst${NC}      ${CYAN}│${NC} ${BOLD}Lokal URL${NC}                         ${CYAN}│${NC} ${BOLD}Status${NC}           ${CYAN}│${NC}"
 echo -e "${CYAN}├─────────────┼──────────────────────────────────┼──────────────────┤${NC}"
 printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "Proxmox" "https://$(hostname -I | awk '{print $1}'):8006" "Denna maskin"
-printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "HAOS" "http://${NETWORK_PREFIX}.${IP_HA}:8123" "$(check_id_exists $IP_HA 2>/dev/null && echo 'Installerad' || echo 'Hoppades över')"
-printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "NPM Admin" "http://${NETWORK_PREFIX}.${IP_NPM}:81" "$(check_id_exists $IP_NPM 2>/dev/null && echo 'Installerad' || echo 'Hoppades över')"
-printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "Frigate" "http://${NETWORK_PREFIX}.${IP_FRIGATE}:5000" "$(check_id_exists $IP_FRIGATE 2>/dev/null && echo 'Installerad' || echo 'Hoppades över')"
+printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "HAOS" "http://${_sum_ha_ip}:8123" "$(check_id_exists $IP_HA 2>/dev/null && echo 'Installerad' || echo 'Hoppades över')"
+printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "NPM Admin" "http://${_sum_npm_ip}:81" "$(check_id_exists $IP_NPM 2>/dev/null && echo 'Installerad' || echo 'Hoppades över')"
+printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "Frigate" "http://${_sum_frigate_ip}:5000" "$(check_id_exists $IP_FRIGATE 2>/dev/null && echo 'Installerad' || echo 'Hoppades över')"
 printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "Cloudflared" "(ingen UI — tunnel)" "$(check_id_exists $IP_CLOUDFLARED 2>/dev/null && echo 'Installerad' || echo 'Hoppades över')"
-printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "Guacamole" "http://${NETWORK_PREFIX}.${IP_GUACAMOLE:-107}:8080" "$(check_id_exists ${IP_GUACAMOLE:-107} 2>/dev/null && echo 'Installerad' || echo 'Hoppades över')"
+printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "Guacamole" "http://${_sum_guac_ip}:8080" "$(check_id_exists ${IP_GUACAMOLE:-107} 2>/dev/null && echo 'Installerad' || echo 'Hoppades över')"
 echo -e "${CYAN}└─────────────┴──────────────────────────────────┴──────────────────┘${NC}"
+
+if [ "${USE_DHCP:-false}" == "true" ]; then
+    echo ""
+    echo -e "  ${YELLOW}${BOLD}OBS: DHCP-läge — IP-adresserna ovan kan ändras vid omstart!${NC}"
+    echo -e "  ${YELLOW}Lås dem i din router (DHCP-reservation) för att de ska vara permanenta.${NC}"
+fi
 
 # Wake-on-LAN info
 MAC_ADDRESS=$(get_state mac_address)
@@ -1248,7 +1366,7 @@ if [ -z "$CF_TUNNEL_TOKEN" ] && check_id_exists $IP_CLOUDFLARED 2>/dev/null; the
 fi
 
 if check_id_exists $IP_NPM 2>/dev/null; then
-    echo -e "  ${STEP}. ${BOLD}NPM Admin:${NC} Logga in på http://${NETWORK_PREFIX}.${IP_NPM}:81"
+    echo -e "  ${STEP}. ${BOLD}NPM Admin:${NC} Logga in på http://${_sum_npm_ip}:81"
     if [ -n "$SHARED_PASSWORD" ]; then
         echo -e "     Login: ${GREEN}${NPM_ADMIN_EMAIL:-admin@example.com}${NC} / (ditt gemensamma lösenord)"
     else
@@ -1260,14 +1378,14 @@ if check_id_exists $IP_NPM 2>/dev/null; then
 fi
 
 if check_id_exists $IP_HA 2>/dev/null; then
-    echo -e "  ${STEP}. ${BOLD}Home Assistant:${NC} Gå till http://${NETWORK_PREFIX}.${IP_HA}:8123"
+    echo -e "  ${STEP}. ${BOLD}Home Assistant:${NC} Gå till http://${_sum_ha_ip}:8123"
     echo -e "     Återställ din backup eller skapa nytt konto."
     echo -e "     Installera Mosquitto add-on (se steg 1 ovan)."
     STEP=$((STEP + 1))
 fi
 
 if check_id_exists $IP_FRIGATE 2>/dev/null; then
-    echo -e "  ${STEP}. ${BOLD}Frigate:${NC} Gå till http://${NETWORK_PREFIX}.${IP_FRIGATE}:5000"
+    echo -e "  ${STEP}. ${BOLD}Frigate:${NC} Gå till http://${_sum_frigate_ip}:5000"
     echo -e "     Rita zoner och masker i UI:t för varje kamera."
     echo -e "     Verifiera att alla kameror syns och att AI-detektering fungerar."
     STEP=$((STEP + 1))

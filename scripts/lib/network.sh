@@ -98,3 +98,121 @@ confirm_network() {
         return 1
     fi
 }
+
+# ============================================================
+# Nätverksparameter för CT-skapning (DHCP vs statisk)
+# ============================================================
+# Returnerar korrekt --net0-sträng baserat på USE_DHCP
+# Användning: NET0=$(get_net0_param "$CT_IP" "$CIDR" "$GATEWAY")
+get_net0_param() {
+    local ct_ip="$1"
+    local cidr="$2"
+    local gw="$3"
+    
+    if [ "${USE_DHCP:-false}" == "true" ]; then
+        echo "name=eth0,bridge=vmbr0,ip=dhcp"
+    else
+        echo "name=eth0,bridge=vmbr0,ip=${ct_ip}/${cidr},gw=${gw}"
+    fi
+}
+
+# Upptäck faktisk IP för en container efter start
+# Användning: ACTUAL_IP=$(discover_ct_ip "$CT_ID" "$FALLBACK_IP" [timeout])
+discover_ct_ip() {
+    local ct_id="$1"
+    local fallback_ip="$2"
+    local timeout="${3:-30}"
+    local ip=""
+    
+    # Vänta på att containern får en IP
+    for i in $(seq 1 $((timeout / 3))); do
+        ip=$(pct exec "$ct_id" -- hostname -I 2>/dev/null | awk '{print $1}')
+        if [ -n "$ip" ] && [ "$ip" != "127.0.0.1" ]; then
+            echo "$ip"
+            return 0
+        fi
+        sleep 3
+    done
+    
+    # Fallback till förväntad IP
+    if [ -n "$fallback_ip" ]; then
+        echo "$fallback_ip"
+    fi
+    return 1
+}
+
+# ============================================================
+# IP-tillgänglighetscheck — pinga för att se om IP är ledig
+# ============================================================
+# Returnerar 0 om IP är ledig, 1 om den är upptagen
+check_ip_free() {
+    local ip="$1"
+    # Snabb ping (1 paket, 1 sek timeout)
+    if ping -c 1 -W 1 "$ip" > /dev/null 2>&1; then
+        return 1  # Upptagen
+    fi
+    # Dubbelkolla med arping om tillgängligt (fångar enheter som inte svarar på ping)
+    if command -v arping > /dev/null 2>&1; then
+        if arping -c 1 -w 1 "$ip" 2>/dev/null | grep -q "reply"; then
+            return 1  # Upptagen
+        fi
+    fi
+    return 0  # Ledig
+}
+
+# Hitta nästa lediga IP från en startpunkt
+# Användning: find_free_ip "192.168.1" 100
+# Returnerar: ledigt IP-suffix (t.ex. "100" eller "101" om 100 är upptagen)
+find_free_ip() {
+    local prefix="$1"
+    local start="$2"
+    local max_tries=20
+    
+    for i in $(seq 0 $((max_tries - 1))); do
+        local candidate=$((start + i))
+        if [ $candidate -gt 254 ]; then
+            break
+        fi
+        if check_ip_free "${prefix}.${candidate}"; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+    # Ingen ledig hittad
+    echo ""
+    return 1
+}
+
+# Verifiera alla planerade IP-adresser och rapportera konflikter
+# Användning: verify_planned_ips
+# Läser IP_HA, IP_CLOUDFLARED, IP_NPM, IP_FRIGATE från miljön
+verify_planned_ips() {
+    local prefix="${NETWORK_PREFIX}"
+    local conflicts=0
+    local services=("HA:${IP_HA}" "Cloudflared:${IP_CLOUDFLARED}" "NPM:${IP_NPM}" "Frigate:${IP_FRIGATE}")
+    
+    msg_info "Kontrollerar att planerade IP-adresser är lediga..."
+    
+    for entry in "${services[@]}"; do
+        local name="${entry%%:*}"
+        local suffix="${entry##*:}"
+        [ -z "$suffix" ] && continue
+        
+        local full_ip="${prefix}.${suffix}"
+        if ! check_ip_free "$full_ip"; then
+            msg_warn "${full_ip} (ämnad för ${name}) är UPPTAGEN!"
+            conflicts=$((conflicts + 1))
+            
+            # Försök hitta nästa lediga
+            local free_suffix
+            free_suffix=$(find_free_ip "$prefix" "$suffix")
+            if [ -n "$free_suffix" ]; then
+                msg_info "  Förslag: använd ${prefix}.${free_suffix} istället"
+            fi
+        else
+            msg_ok "${full_ip} (${name}) — ledig"
+        fi
+    done
+    
+    return $conflicts
+}

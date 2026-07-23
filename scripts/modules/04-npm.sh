@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 source setup.env
 source lib/ui.sh
+source lib/network.sh
 TEMPLATE_PATH=$1
 
 CIDR="${NETWORK_CIDR:-24}"
 CT_IP="${NETWORK_PREFIX}.${IP_NPM}"
+
+# Bestäm nätverksparameter (DHCP eller statisk)
+NET0_PARAM=$(get_net0_param "$CT_IP" "$CIDR" "$GATEWAY")
 
 msg_info "Skapar LXC-container ${IP_NPM}..."
 
@@ -13,7 +17,7 @@ if ! pct create "${IP_NPM}" "${TEMPLATE_PATH}" \
     --cores 1 \
     --memory 1024 \
     --swap 0 \
-    --net0 "name=eth0,bridge=vmbr0,ip=${CT_IP}/${CIDR},gw=${GATEWAY}" \
+    --net0 "$NET0_PARAM" \
     --storage "${STORAGE_POOL}" \
     --rootfs "${STORAGE_POOL}:8" \
     --password "${SHARED_PASSWORD:-$CT_PASSWORD}" \
@@ -26,6 +30,15 @@ fi
 
 pct start "${IP_NPM}"
 sleep 5
+
+# Upptäck faktisk IP (viktigt vid DHCP)
+ACTUAL_IP=$(discover_ct_ip "${IP_NPM}" "$CT_IP" 30)
+if [ "${USE_DHCP:-false}" == "true" ] && [ -n "$ACTUAL_IP" ]; then
+    msg_info "Container fick IP: ${ACTUAL_IP}"
+    msg_warn "Lås denna IP i din router för att den ska vara permanent."
+    # Exportera för setup.sh (NPM login, wait_for_service)
+    CT_IP="$ACTUAL_IP"
+fi
 
 msg_info "Installerar Docker i containern..."
 pct exec "${IP_NPM}" -- bash -c "apt-get update -qq > /dev/null 2>&1"

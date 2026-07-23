@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 source setup.env
 source lib/ui.sh
+source lib/network.sh
 TEMPLATE_PATH=$1
 
 CIDR="${NETWORK_CIDR:-24}"
 CT_IP="${NETWORK_PREFIX}.${IP_CLOUDFLARED}"
+
+# Bestäm nätverksparameter (DHCP eller statisk)
+NET0_PARAM=$(get_net0_param "$CT_IP" "$CIDR" "$GATEWAY")
 
 msg_info "Skapar LXC-container ${IP_CLOUDFLARED}..."
 
@@ -13,7 +17,7 @@ if ! pct create "${IP_CLOUDFLARED}" "${TEMPLATE_PATH}" \
     --cores 1 \
     --memory 512 \
     --swap 0 \
-    --net0 "name=eth0,bridge=vmbr0,ip=${CT_IP}/${CIDR},gw=${GATEWAY}" \
+    --net0 "$NET0_PARAM" \
     --storage "${STORAGE_POOL}" \
     --rootfs "${STORAGE_POOL}:8" \
     --password "${SHARED_PASSWORD:-$CT_PASSWORD}" \
@@ -26,6 +30,13 @@ fi
 
 pct start "${IP_CLOUDFLARED}"
 sleep 5
+
+# Upptäck faktisk IP (viktigt vid DHCP)
+ACTUAL_IP=$(discover_ct_ip "${IP_CLOUDFLARED}" "$CT_IP" 30)
+if [ "${USE_DHCP:-false}" == "true" ] && [ -n "$ACTUAL_IP" ]; then
+    msg_info "Container fick IP: ${ACTUAL_IP}"
+    msg_warn "Lås denna IP i din router för att den ska vara permanent."
+fi
 
 msg_info "Installerar Cloudflared-demonen..."
 pct exec "${IP_CLOUDFLARED}" -- bash -c "apt-get update -qq > /dev/null 2>&1 && apt-get install -y -qq curl > /dev/null 2>&1"

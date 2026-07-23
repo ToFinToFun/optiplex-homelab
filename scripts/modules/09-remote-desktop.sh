@@ -2,6 +2,7 @@
 source setup.env
 source lib/ui.sh
 source lib/proxmox.sh
+source lib/network.sh
 source lib/rollback.sh
 TEMPLATE_PATH=$1
 
@@ -121,6 +122,8 @@ if [ "$INSTALL_GUAC" == "y" ]; then
     tty_echo ""
     
     # Skapa container
+    local GUAC_NET0
+    GUAC_NET0=$(get_net0_param "$GUAC_IP" "$CIDR" "$GATEWAY")
     msg_info "Skapar LXC-container ${IP_GUACAMOLE}..."
     
     if ! pct create "${IP_GUACAMOLE}" "${TEMPLATE_PATH}" \
@@ -128,7 +131,7 @@ if [ "$INSTALL_GUAC" == "y" ]; then
         --cores 2 \
         --memory 1024 \
         --swap 0 \
-        --net0 "name=eth0,bridge=vmbr0,ip=${GUAC_IP}/${CIDR},gw=${GATEWAY}" \
+        --net0 "$GUAC_NET0" \
         --storage "${STORAGE_POOL}" \
         --rootfs "${STORAGE_POOL}:8" \
         --password "${SHARED_PASSWORD:-$CT_PASSWORD}" \
@@ -143,6 +146,14 @@ if [ "$INSTALL_GUAC" == "y" ]; then
     rollback_register "ct" "${IP_GUACAMOLE}" "guacamole"
     pct start "${IP_GUACAMOLE}"
     sleep 5
+    
+    # Upptäck faktisk IP (viktigt vid DHCP)
+    GUAC_ACTUAL_IP=$(discover_ct_ip "${IP_GUACAMOLE}" "$GUAC_IP" 30)
+    if [ "${USE_DHCP:-false}" == "true" ] && [ -n "$GUAC_ACTUAL_IP" ]; then
+        msg_info "Guacamole fick IP: ${GUAC_ACTUAL_IP}"
+        msg_warn "Lås denna IP i din router för att den ska vara permanent."
+        GUAC_IP="$GUAC_ACTUAL_IP"
+    fi
     
     # Installera Docker + python3 (python3 behövs för API JSON-parsing)
     msg_info "Installerar Docker + beroenden..."
@@ -337,6 +348,8 @@ if [ "$INSTALL_DESKTOP" == "y" ]; then
     tty_echo ""
     
     # Skapa container (privileged för bättre desktop-stöd)
+    local DESK_NET0
+    DESK_NET0=$(get_net0_param "$DESKTOP_IP" "$CIDR" "$GATEWAY")
     msg_info "Skapar LXC-container ${IP_DESKTOP}..."
     
     if ! pct create "${IP_DESKTOP}" "${TEMPLATE_PATH}" \
@@ -344,7 +357,7 @@ if [ "$INSTALL_DESKTOP" == "y" ]; then
         --cores 4 \
         --memory 4096 \
         --swap 512 \
-        --net0 "name=eth0,bridge=vmbr0,ip=${DESKTOP_IP}/${CIDR},gw=${GATEWAY}" \
+        --net0 "$DESK_NET0" \
         --storage "${STORAGE_POOL}" \
         --rootfs "${STORAGE_POOL}:${DESKTOP_DISK}" \
         --password "${SHARED_PASSWORD:-$CT_PASSWORD}" \
@@ -359,6 +372,14 @@ if [ "$INSTALL_DESKTOP" == "y" ]; then
     rollback_register "ct" "${IP_DESKTOP}" "desktop"
     pct start "${IP_DESKTOP}"
     sleep 5
+    
+    # Upptäck faktisk IP (viktigt vid DHCP)
+    DESK_ACTUAL_IP=$(discover_ct_ip "${IP_DESKTOP}" "$DESKTOP_IP" 30)
+    if [ "${USE_DHCP:-false}" == "true" ] && [ -n "$DESK_ACTUAL_IP" ]; then
+        msg_info "Desktop fick IP: ${DESK_ACTUAL_IP}"
+        msg_warn "Lås denna IP i din router för att den ska vara permanent."
+        DESKTOP_IP="$DESK_ACTUAL_IP"
+    fi
     
     # Installera XFCE + xrdp + openssh-server (med progress-feedback)
     msg_info "Installerar XFCE4 desktop-miljö (detta tar 3-5 minuter)..."

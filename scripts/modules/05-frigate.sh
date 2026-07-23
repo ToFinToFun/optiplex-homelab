@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 source setup.env
 source lib/ui.sh
+source lib/network.sh
 TEMPLATE_PATH=$1
 
 CIDR="${NETWORK_CIDR:-24}"
 CT_IP="${NETWORK_PREFIX}.${IP_FRIGATE}"
+
+# Bestäm nätverksparameter (DHCP eller statisk)
+NET0_PARAM=$(get_net0_param "$CT_IP" "$CIDR" "$GATEWAY")
 
 # Diskstorlek för Frigate CT (Docker-images + modeller + clips)
 # Minimum 32 GB, rekommenderat 64 GB
@@ -32,7 +36,7 @@ if ! pct create "${IP_FRIGATE}" "${TEMPLATE_PATH}" \
     --cores 4 \
     --memory 4096 \
     --swap 0 \
-    --net0 "name=eth0,bridge=vmbr0,ip=${CT_IP}/${CIDR},gw=${GATEWAY}" \
+    --net0 "$NET0_PARAM" \
     --storage "${STORAGE_POOL}" \
     --rootfs "${STORAGE_POOL}:${FRIGATE_DISK}" \
     --password "${SHARED_PASSWORD:-$CT_PASSWORD}" \
@@ -88,6 +92,14 @@ fi
 
 pct start "${IP_FRIGATE}"
 sleep 5
+
+# Upptäck faktisk IP (viktigt vid DHCP)
+ACTUAL_IP=$(discover_ct_ip "${IP_FRIGATE}" "$CT_IP" 30)
+if [ "${USE_DHCP:-false}" == "true" ] && [ -n "$ACTUAL_IP" ]; then
+    msg_info "Container fick IP: ${ACTUAL_IP}"
+    msg_warn "Lås denna IP i din router för att den ska vara permanent."
+    CT_IP="$ACTUAL_IP"
+fi
 
 msg_info "Installerar Docker och beroenden..."
 pct exec "${IP_FRIGATE}" -- bash -c "apt-get update -qq > /dev/null 2>&1"
@@ -285,3 +297,6 @@ else
     fi
 fi
 msg_ok "Frigate ${FRIGATE_TAG} installerat! UI: http://${CT_IP}:5000"
+
+# Exportera faktisk IP för setup.sh (wait_for_service etc)
+FRIGATE_ACTUAL_IP="$CT_IP"
