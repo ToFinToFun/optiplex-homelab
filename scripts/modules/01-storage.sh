@@ -228,6 +228,31 @@ fi
 
 msg_ok "Proxmox storage 'frigate-storage' registrerat"
 
+# ── Koppla till befintlig Frigate CT (om den redan finns) ──────
+FRIGATE_ID="${IP_FRIGATE:-103}"
+if pct status "$FRIGATE_ID" &>/dev/null; then
+    msg_info "Frigate CT ($FRIGATE_ID) finns redan — kopplar lagringsdisken..."
+    
+    # Kolla om mountpoint redan är satt
+    if pct config "$FRIGATE_ID" 2>/dev/null | grep -q "mp0.*frigate-storage"; then
+        msg_ok "frigate-storage är redan monterad i Frigate CT."
+    else
+        # Lägg till mountpoint (kräver att CT är stoppad eller stöder hotplug)
+        if pct set "$FRIGATE_ID" -mp0 "frigate-storage:100,mp=/opt/frigate/storage,backup=0" 2>/dev/null; then
+            msg_ok "frigate-storage monterad i Frigate CT på /opt/frigate/storage"
+            msg_info "Starta om Frigate för att använda den nya disken:"
+            msg_info "  pct reboot $FRIGATE_ID"
+        else
+            msg_warn "Kunde inte mounta automatiskt (CT kanske kör)."
+            msg_info "Kör manuellt efter stopp:"
+            msg_info "  pct set $FRIGATE_ID -mp0 frigate-storage:100,mp=/opt/frigate/storage,backup=0"
+            msg_info "  pct reboot $FRIGATE_ID"
+        fi
+    fi
+else
+    msg_info "Frigate CT finns inte ännu — disken kopplas automatiskt när Frigate installeras."
+fi
+
 # ── Sammanfattning ────────────────────────────────────────────
 echo ""
 msg_ok "┌─────────────────────────────────────────────────────┐"
