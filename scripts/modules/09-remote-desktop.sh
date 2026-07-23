@@ -1,0 +1,404 @@
+#!/usr/bin/env bash
+source setup.env
+source lib/ui.sh
+source lib/proxmox.sh
+source lib/rollback.sh
+TEMPLATE_PATH=$1
+
+# ============================================================
+# Modul 09 — Remote Desktop (Guacamole + Linux Desktop)
+# ============================================================
+# Guacamole: Webb-baserad RDP/VNC/SSH-gateway (Docker i LXC)
+# Desktop:   Debian 13 + XFCE4 + xrdp (LXC container)
+# ============================================================
+
+CIDR="${NETWORK_CIDR:-24}"
+
+# ─── Undermeny ───────────────────────────────────────────────
+echo "" > /dev/tty
+echo -e "  ${CYAN}╔══════════════════════════════════════════════════════════╗${NC}" > /dev/tty
+echo -e "  ${CYAN}║${NC} ${BOLD}Remote Desktop — Vad vill du installera?${NC}                ${CYAN}║${NC}" > /dev/tty
+echo -e "  ${CYAN}╠══════════════════════════════════════════════════════════╣${NC}" > /dev/tty
+echo -e "  ${CYAN}║${NC}                                                          ${CYAN}║${NC}" > /dev/tty
+echo -e "  ${CYAN}║${NC}  ${BOLD}1)${NC} Guacamole — RDP-proxy via webbläsaren               ${CYAN}║${NC}" > /dev/tty
+echo -e "  ${CYAN}║${NC}     ${DIM}Anslut till alla maskiner via rdp.dindomän.se${NC}        ${CYAN}║${NC}" > /dev/tty
+echo -e "  ${CYAN}║${NC}                                                          ${CYAN}║${NC}" > /dev/tty
+echo -e "  ${CYAN}║${NC}  ${BOLD}2)${NC} Linux Desktop — Lättvikts-skrivbord med RDP          ${CYAN}║${NC}" > /dev/tty
+echo -e "  ${CYAN}║${NC}     ${DIM}Debian 13 + XFCE4 + xrdp (anslut via Guacamole)${NC}     ${CYAN}║${NC}" > /dev/tty
+echo -e "  ${CYAN}║${NC}                                                          ${CYAN}║${NC}" > /dev/tty
+echo -e "  ${CYAN}║${NC}  ${BOLD}3)${NC} Båda (rekommenderat)                                 ${CYAN}║${NC}" > /dev/tty
+echo -e "  ${CYAN}║${NC}                                                          ${CYAN}║${NC}" > /dev/tty
+echo -e "  ${CYAN}╚══════════════════════════════════════════════════════════╝${NC}" > /dev/tty
+echo "" > /dev/tty
+echo -ne "  ${BOLD}Välj [1/2/3]: ${NC}" > /dev/tty
+read RDP_CHOICE < /dev/tty
+
+INSTALL_GUAC="n"
+INSTALL_DESKTOP="n"
+
+case "$RDP_CHOICE" in
+    1) INSTALL_GUAC="y" ;;
+    2) INSTALL_DESKTOP="y" ;;
+    3|"") INSTALL_GUAC="y"; INSTALL_DESKTOP="y" ;;
+    *) INSTALL_GUAC="y"; INSTALL_DESKTOP="y" ;;
+esac
+
+# ─── Konfiguration ───────────────────────────────────────────
+echo "" > /dev/tty
+
+if [ "$INSTALL_GUAC" == "y" ]; then
+    msg_header "Guacamole — Konfiguration"
+    
+    # CT ID och IP
+    local_default_guac_id="${IP_GUACAMOLE:-107}"
+    IP_GUACAMOLE=$(ask_string "CT ID för Guacamole (även sista delen av IP)" "$local_default_guac_id")
+    GUAC_IP="${NETWORK_PREFIX}.${IP_GUACAMOLE}"
+    
+    echo -e "  ${DIM}Guacamole admin-konto (för inloggning i webbgränssnittet)${NC}" > /dev/tty
+    GUAC_ADMIN_USER=$(ask_string "Guacamole admin-användarnamn" "admin")
+    GUAC_ADMIN_PASS=""
+    while [ -z "$GUAC_ADMIN_PASS" ]; do
+        GUAC_ADMIN_PASS=$(ask_string "Guacamole admin-lösenord" "" "true")
+    done
+fi
+
+if [ "$INSTALL_DESKTOP" == "y" ]; then
+    msg_header "Linux Desktop — Konfiguration"
+    
+    # CT ID och IP
+    local_default_desk_id="${IP_DESKTOP:-108}"
+    IP_DESKTOP=$(ask_string "CT ID för Desktop (även sista delen av IP)" "$local_default_desk_id")
+    DESKTOP_IP="${NETWORK_PREFIX}.${IP_DESKTOP}"
+    
+    echo -e "  ${DIM}Desktop-användare (för RDP-inloggning)${NC}" > /dev/tty
+    DESKTOP_USER=$(ask_string "Desktop-användarnamn" "user")
+    DESKTOP_PASS=""
+    while [ -z "$DESKTOP_PASS" ]; do
+        DESKTOP_PASS=$(ask_string "Desktop-lösenord" "" "true")
+    done
+    
+    DESKTOP_DISK=$(ask_string "Diskstorlek för Desktop (GB, minimum 16)" "32")
+    # Validera minimum
+    if [ "$DESKTOP_DISK" -lt 16 ] 2>/dev/null; then
+        msg_warn "Minimum 16GB krävs. Sätter till 16GB."
+        DESKTOP_DISK=16
+    fi
+fi
+
+# ─── Installation: Guacamole ─────────────────────────────────
+if [ "$INSTALL_GUAC" == "y" ]; then
+    echo "" > /dev/tty
+    msg_header "Installerar Guacamole (CT ${IP_GUACAMOLE})"
+    echo -e "  ${DIM}Webb-baserad RDP/VNC/SSH-gateway — nås via rdp.dindomän.se${NC}" > /dev/tty
+    echo "" > /dev/tty
+    
+    # Skapa container
+    msg_info "Skapar LXC-container ${IP_GUACAMOLE}..."
+    
+    if ! pct create "${IP_GUACAMOLE}" "${TEMPLATE_PATH}" \
+        --hostname guacamole \
+        --cores 2 \
+        --memory 1024 \
+        --swap 0 \
+        --net0 "name=eth0,bridge=vmbr0,ip=${GUAC_IP}/${CIDR},gw=${GATEWAY}" \
+        --storage "${STORAGE_POOL}" \
+        --rootfs "${STORAGE_POOL}:8" \
+        --password "${SHARED_PASSWORD:-$CT_PASSWORD}" \
+        --unprivileged 1 \
+        --features nesting=1,keyctl=1 \
+        --onboot 1 2>&1; then
+        msg_err "Kunde inte skapa Guacamole-container."
+        rollback_offer "${IP_GUACAMOLE}" "Guacamole"
+        return 1 2>/dev/null || exit 1
+    fi
+    
+    rollback_register "ct" "${IP_GUACAMOLE}" "guacamole"
+    pct start "${IP_GUACAMOLE}"
+    sleep 5
+    
+    # Installera Docker
+    msg_info "Installerar Docker..."
+    pct exec "${IP_GUACAMOLE}" -- bash -c "apt-get update -qq > /dev/null 2>&1"
+    pct exec "${IP_GUACAMOLE}" -- bash -c "apt-get install -y -qq curl ca-certificates gnupg > /dev/null 2>&1"
+    pct exec "${IP_GUACAMOLE}" -- bash -c "install -m 0755 -d /etc/apt/keyrings"
+    pct exec "${IP_GUACAMOLE}" -- bash -c "curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg 2>/dev/null"
+    pct exec "${IP_GUACAMOLE}" -- bash -c "chmod a+r /etc/apt/keyrings/docker.gpg"
+    pct exec "${IP_GUACAMOLE}" -- bash -c 'echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null'
+    pct exec "${IP_GUACAMOLE}" -- bash -c "apt-get update -qq > /dev/null 2>&1"
+    pct exec "${IP_GUACAMOLE}" -- bash -c "apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin > /dev/null 2>&1"
+    
+    # Skapa Guacamole docker-compose
+    msg_info "Konfigurerar Guacamole (Docker Compose)..."
+    pct exec "${IP_GUACAMOLE}" -- bash -c "mkdir -p /opt/guacamole"
+    
+    # Generera databas-lösenord
+    GUAC_DB_PASS=$(openssl rand -base64 16 | tr -dc 'a-zA-Z0-9' | head -c 16)
+    
+    cat > /tmp/guac-compose.yml << EOF
+services:
+  guacd:
+    image: guacamole/guacd:latest
+    container_name: guacd
+    restart: unless-stopped
+    networks:
+      - guac-net
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: guac-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: guacamole_db
+      POSTGRES_USER: guacamole_user
+      POSTGRES_PASSWORD: ${GUAC_DB_PASS}
+    volumes:
+      - ./db-data:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d
+    networks:
+      - guac-net
+
+  guacamole:
+    image: guacamole/guacamole:latest
+    container_name: guacamole
+    restart: unless-stopped
+    depends_on:
+      - guacd
+      - postgres
+    environment:
+      GUACD_HOSTNAME: guacd
+      POSTGRESQL_HOSTNAME: postgres
+      POSTGRESQL_DATABASE: guacamole_db
+      POSTGRESQL_USER: guacamole_user
+      POSTGRESQL_PASSWORD: ${GUAC_DB_PASS}
+      WEBAPP_CONTEXT: ROOT
+      REMOTE_IP_VALVE_ENABLED: "true"
+    ports:
+      - "8080:8080"
+    networks:
+      - guac-net
+
+networks:
+  guac-net:
+    driver: bridge
+EOF
+    pct push "${IP_GUACAMOLE}" /tmp/guac-compose.yml /opt/guacamole/docker-compose.yml
+    rm -f /tmp/guac-compose.yml
+    
+    # Generera databas-initieringsscript
+    msg_info "Initierar Guacamole-databasen..."
+    pct exec "${IP_GUACAMOLE}" -- bash -c "mkdir -p /opt/guacamole/initdb"
+    pct exec "${IP_GUACAMOLE}" -- bash -c "docker pull guacamole/guacamole:latest > /dev/null 2>&1"
+    pct exec "${IP_GUACAMOLE}" -- bash -c "docker run --rm guacamole/guacamole /opt/guacamole/bin/initdb.sh --postgresql > /opt/guacamole/initdb/001-init.sql 2>/dev/null"
+    
+    # Skapa SQL för att ändra default admin-lösenord och skapa vår admin-användare
+    # (Vi skapar en ny admin och tar bort guacadmin)
+    GUAC_ADMIN_HASH=$(echo -n "$GUAC_ADMIN_PASS" | openssl dgst -sha256 -binary | xxd -p | tr -d '\n' | tr 'a-f' 'A-F')
+    
+    cat > /tmp/guac-admin.sql << EOF
+-- Ändra default admin-lösenord och skapa anpassad admin
+-- Kör EFTER init-scriptet
+
+-- Uppdatera guacadmin-lösenordet till det valda
+UPDATE guacamole_user
+SET password_hash = decode('${GUAC_ADMIN_HASH}', 'hex'),
+    password_salt = decode('', 'hex'),
+    password_date = NOW()
+WHERE entity_id = (
+    SELECT entity_id FROM guacamole_entity
+    WHERE name = 'guacadmin' AND type = 'USER'
+);
+
+-- Byt namn på guacadmin till valt användarnamn
+UPDATE guacamole_entity
+SET name = '${GUAC_ADMIN_USER}'
+WHERE name = 'guacadmin' AND type = 'USER';
+EOF
+    pct push "${IP_GUACAMOLE}" /tmp/guac-admin.sql /opt/guacamole/initdb/002-admin.sql
+    rm -f /tmp/guac-admin.sql
+    
+    # Starta Guacamole
+    msg_info "Startar Guacamole via Docker Compose..."
+    pct exec "${IP_GUACAMOLE}" -- bash -c "cd /opt/guacamole && docker compose up -d" > /dev/null 2>&1
+    
+    # Vänta på att Guacamole startar
+    msg_info "Väntar på att Guacamole startar..."
+    guac_ready=0
+    for i in $(seq 1 30); do
+        if pct exec "${IP_GUACAMOLE}" -- bash -c "curl -sf http://localhost:8080/ > /dev/null 2>&1"; then
+            guac_ready=1
+            break
+        fi
+        sleep 3
+    done
+    
+    if [ "$guac_ready" -eq 1 ]; then
+        msg_ok "Guacamole är igång! Webb-UI: http://${GUAC_IP}:8080"
+    else
+        msg_warn "Guacamole startar fortfarande. Ge den 1-2 minuter."
+        msg_info "Testa manuellt: http://${GUAC_IP}:8080"
+    fi
+fi
+
+# ─── Installation: Linux Desktop ─────────────────────────────
+if [ "$INSTALL_DESKTOP" == "y" ]; then
+    echo "" > /dev/tty
+    msg_header "Installerar Linux Desktop (CT ${IP_DESKTOP})"
+    echo -e "  ${DIM}Debian 13 + XFCE4 + xrdp — lättvikts-skrivbord${NC}" > /dev/tty
+    echo "" > /dev/tty
+    
+    # Skapa container (privileged för bättre desktop-stöd)
+    msg_info "Skapar LXC-container ${IP_DESKTOP}..."
+    
+    if ! pct create "${IP_DESKTOP}" "${TEMPLATE_PATH}" \
+        --hostname desktop \
+        --cores 4 \
+        --memory 4096 \
+        --swap 512 \
+        --net0 "name=eth0,bridge=vmbr0,ip=${DESKTOP_IP}/${CIDR},gw=${GATEWAY}" \
+        --storage "${STORAGE_POOL}" \
+        --rootfs "${STORAGE_POOL}:${DESKTOP_DISK}" \
+        --password "${SHARED_PASSWORD:-$CT_PASSWORD}" \
+        --unprivileged 1 \
+        --features nesting=1 \
+        --onboot 1 2>&1; then
+        msg_err "Kunde inte skapa Desktop-container."
+        rollback_offer "${IP_DESKTOP}" "Desktop"
+        return 1 2>/dev/null || exit 1
+    fi
+    
+    rollback_register "ct" "${IP_DESKTOP}" "desktop"
+    pct start "${IP_DESKTOP}"
+    sleep 5
+    
+    # Installera XFCE + xrdp
+    msg_info "Installerar XFCE4 desktop-miljö (detta tar 3-5 minuter)..."
+    pct exec "${IP_DESKTOP}" -- bash -c "apt-get update -qq > /dev/null 2>&1"
+    pct exec "${IP_DESKTOP}" -- bash -c "DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+        xfce4 xfce4-terminal xfce4-goodies \
+        lightdm \
+        xrdp \
+        dbus-x11 \
+        firefox-esr \
+        > /dev/null 2>&1"
+    
+    # Skapa användare
+    msg_info "Skapar användare '${DESKTOP_USER}'..."
+    pct exec "${IP_DESKTOP}" -- bash -c "useradd -m -s /bin/bash -G sudo,audio,video '${DESKTOP_USER}'"
+    pct exec "${IP_DESKTOP}" -- bash -c "echo '${DESKTOP_USER}:${DESKTOP_PASS}' | chpasswd"
+    
+    # Konfigurera xrdp för XFCE
+    msg_info "Konfigurerar xrdp för XFCE..."
+    pct exec "${IP_DESKTOP}" -- bash -c "cat > /home/${DESKTOP_USER}/.xsession << 'XEOF'
+#!/bin/bash
+exec startxfce4
+XEOF"
+    pct exec "${IP_DESKTOP}" -- bash -c "chown ${DESKTOP_USER}:${DESKTOP_USER} /home/${DESKTOP_USER}/.xsession"
+    pct exec "${IP_DESKTOP}" -- bash -c "chmod +x /home/${DESKTOP_USER}/.xsession"
+    
+    # Aktivera och starta xrdp
+    pct exec "${IP_DESKTOP}" -- bash -c "systemctl enable xrdp > /dev/null 2>&1"
+    pct exec "${IP_DESKTOP}" -- bash -c "systemctl start xrdp > /dev/null 2>&1"
+    
+    # Verifiera att xrdp lyssnar
+    sleep 2
+    if pct exec "${IP_DESKTOP}" -- bash -c "ss -tlnp | grep -q ':3389'"; then
+        msg_ok "Linux Desktop igång! xrdp lyssnar på port 3389."
+    else
+        msg_warn "xrdp verkar inte lyssna ännu. Kan behöva en reboot av containern."
+        msg_info "Testa: pct reboot ${IP_DESKTOP}"
+    fi
+    
+    msg_ok "Desktop-container klar! Anslut via RDP till ${DESKTOP_IP}:3389"
+    echo -e "  ${DIM}Användare: ${DESKTOP_USER} / Lösenord: (det du angav)${NC}" > /dev/tty
+fi
+
+# ─── Auto-konfigurera Guacamole med Desktop-anslutning ────────
+if [ "$INSTALL_GUAC" == "y" ] && [ "$INSTALL_DESKTOP" == "y" ]; then
+    echo "" > /dev/tty
+    msg_info "Konfigurerar Guacamole med Desktop-anslutning..."
+    
+    # Vänta tills Guacamole API svarar
+    sleep 5
+    
+    # Skapa RDP-anslutning via Guacamole API
+    # Hämta auth-token
+    GUAC_TOKEN=$(pct exec "${IP_GUACAMOLE}" -- bash -c "curl -sf 'http://localhost:8080/api/tokens' \
+        -d 'username=${GUAC_ADMIN_USER}&password=${GUAC_ADMIN_PASS}' 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get(\"authToken\",\"\"))' 2>/dev/null")
+    
+    if [ -n "$GUAC_TOKEN" ]; then
+        # Skapa RDP-anslutning till Desktop
+        pct exec "${IP_GUACAMOLE}" -- bash -c "curl -sf 'http://localhost:8080/api/session/data/postgresql/connections?token=${GUAC_TOKEN}' \
+            -H 'Content-Type: application/json' \
+            -d '{
+                \"name\": \"Linux Desktop\",
+                \"protocol\": \"rdp\",
+                \"parentIdentifier\": \"ROOT\",
+                \"parameters\": {
+                    \"hostname\": \"${DESKTOP_IP}\",
+                    \"port\": \"3389\",
+                    \"username\": \"${DESKTOP_USER}\",
+                    \"password\": \"${DESKTOP_PASS}\",
+                    \"security\": \"any\",
+                    \"ignore-cert\": \"true\",
+                    \"resize-method\": \"display-update\"
+                },
+                \"attributes\": {}
+            }' > /dev/null 2>&1"
+        
+        msg_ok "RDP-anslutning 'Linux Desktop' skapad i Guacamole!"
+    else
+        msg_warn "Kunde inte auto-konfigurera Guacamole (API ej redo)."
+        echo -e "  ${DIM}Du kan lägga till anslutningen manuellt i Guacamole UI:${NC}" > /dev/tty
+        echo -e "  ${DIM}  Hostname: ${DESKTOP_IP}, Port: 3389, User: ${DESKTOP_USER}${NC}" > /dev/tty
+    fi
+fi
+
+# ─── Sammanfattning och NPM/Cloudflare-instruktioner ──────────
+echo "" > /dev/tty
+echo -e "  ${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}" > /dev/tty
+echo -e "  ${BOLD}Remote Desktop — Klart!${NC}" > /dev/tty
+echo -e "  ${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}" > /dev/tty
+echo "" > /dev/tty
+
+if [ "$INSTALL_GUAC" == "y" ]; then
+    echo -e "  ${BOLD}Guacamole:${NC}" > /dev/tty
+    echo -e "    Lokal URL:    http://${GUAC_IP}:8080" > /dev/tty
+    echo -e "    Användare:    ${GUAC_ADMIN_USER}" > /dev/tty
+    echo -e "    Lösenord:     (det du angav)" > /dev/tty
+    echo "" > /dev/tty
+fi
+
+if [ "$INSTALL_DESKTOP" == "y" ]; then
+    echo -e "  ${BOLD}Linux Desktop:${NC}" > /dev/tty
+    echo -e "    RDP-adress:   ${DESKTOP_IP}:3389" > /dev/tty
+    echo -e "    Användare:    ${DESKTOP_USER}" > /dev/tty
+    echo -e "    Lösenord:     (det du angav)" > /dev/tty
+    echo "" > /dev/tty
+fi
+
+if [ "$INSTALL_GUAC" == "y" ]; then
+    echo -e "  ${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}" > /dev/tty
+    echo -e "  ${BOLD}Nästa steg — Exponera via Cloudflare:${NC}" > /dev/tty
+    echo -e "  ${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}" > /dev/tty
+    echo "" > /dev/tty
+    echo -e "  ${BOLD}1. NPM Proxy Host:${NC}" > /dev/tty
+    echo -e "     Domain:     rdp.dindomän.se" > /dev/tty
+    echo -e "     Scheme:     http" > /dev/tty
+    echo -e "     Forward:    ${GUAC_IP}:8080" > /dev/tty
+    echo -e "     Websockets: PÅ" > /dev/tty
+    echo -e "     Force SSL:  AV (Cloudflare hanterar HTTPS)" > /dev/tty
+    echo "" > /dev/tty
+    echo -e "  ${BOLD}2. Cloudflare Tunnel (om wildcard redan finns):${NC}" > /dev/tty
+    echo -e "     Om du har *.dindomän.se → NPM i tunneln" > /dev/tty
+    echo -e "     behövs inget mer — rdp.dindomän.se fungerar direkt!" > /dev/tty
+    echo "" > /dev/tty
+    echo -e "  ${BOLD}3. Zero Trust Access (rekommenderat):${NC}" > /dev/tty
+    echo -e "     Skydda rdp.dindomän.se med inloggning:" > /dev/tty
+    echo -e "     Cloudflare Zero Trust → Access → Applications → Add" > /dev/tty
+    echo -e "     Application domain: rdp.dindomän.se" > /dev/tty
+    echo -e "     Policy: Allow → Emails ending in @dindomän.se" > /dev/tty
+    echo -e "  ${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}" > /dev/tty
+fi
+
+echo "" > /dev/tty
+msg_ok "Remote Desktop-installationen klar!"

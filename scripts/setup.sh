@@ -91,7 +91,7 @@ trap cleanup_on_exit EXIT
 trap 'exit 130' INT TERM
 
 # Totalt antal steg (för progressbar)
-TOTAL_STEPS=9
+TOTAL_STEPS=10
 CURRENT_STEP=0
 
 # ==========================================
@@ -346,6 +346,7 @@ DO_FRIGATE="y"
 DO_CAMERAS="y"
 DO_CF_DNS="y"
 DO_NPM_CONF="y"
+DO_RDP="n"
 
 # Inventera vad som redan är klart
 STATUS_HOST="saknas"
@@ -356,6 +357,7 @@ STATUS_FRIGATE="saknas"
 STATUS_CAMERAS="saknas"
 STATUS_CFDNS="saknas"
 STATUS_NPMCONF="saknas"
+STATUS_RDP="saknas"
 
 [ "$(get_state host_configured)" == "true" ] && STATUS_HOST="klar"
 check_id_exists $IP_HA 2>/dev/null && STATUS_HA="installerad"
@@ -365,6 +367,7 @@ check_id_exists $IP_FRIGATE 2>/dev/null && STATUS_FRIGATE="installerad"
 [ "$(get_state cameras_configured)" == "true" ] && STATUS_CAMERAS="klar"
 [ "$(get_state cfdns_configured)" == "true" ] && STATUS_CFDNS="klar"
 [ "$(get_state npm_configured)" == "true" ] && STATUS_NPMCONF="klar"
+(check_id_exists ${IP_GUACAMOLE:-107} 2>/dev/null || check_id_exists ${IP_DESKTOP:-108} 2>/dev/null) && STATUS_RDP="installerad"
 
 # Räkna hur många som är klara
 DONE_COUNT=0
@@ -376,6 +379,7 @@ DONE_COUNT=0
 [ "$STATUS_CAMERAS" != "saknas" ] && DONE_COUNT=$((DONE_COUNT + 1))
 [ "$STATUS_CFDNS" != "saknas" ] && DONE_COUNT=$((DONE_COUNT + 1))
 [ "$STATUS_NPMCONF" != "saknas" ] && DONE_COUNT=$((DONE_COUNT + 1))
+[ "$STATUS_RDP" != "saknas" ] && DONE_COUNT=$((DONE_COUNT + 1))
 
 # Om ALLT saknas — första körningen, kör allt utan meny
 if [ $DONE_COUNT -eq 0 ]; then
@@ -402,16 +406,17 @@ else
     printf "  ${CYAN}║${NC}  6. $(status_icon $STATUS_CAMERAS) Kameror & Config     %-16s ${CYAN}║${NC}\n" "($STATUS_CAMERAS)" > /dev/tty
     printf "  ${CYAN}║${NC}  7. $(status_icon $STATUS_CFDNS) Cloudflare DNS       %-16s ${CYAN}║${NC}\n" "($STATUS_CFDNS)" > /dev/tty
     printf "  ${CYAN}║${NC}  8. $(status_icon $STATUS_NPMCONF) NPM Auto-Config      %-16s ${CYAN}║${NC}\n" "($STATUS_NPMCONF)" > /dev/tty
+    printf "  ${CYAN}║${NC}  9. $(status_icon $STATUS_RDP) Remote Desktop      %-16s ${CYAN}║${NC}\n" "($STATUS_RDP)" > /dev/tty
     echo -e "  ${CYAN}╠════════════════════════════════════════════════════════╣${NC}" > /dev/tty
     echo -e "  ${CYAN}║${NC}                                                        ${CYAN}║${NC}" > /dev/tty
     echo -e "  ${CYAN}║${NC}  ${BOLD}N${NC} = Kör bara det som saknas (rekommenderat)           ${CYAN}║${NC}" > /dev/tty
     echo -e "  ${CYAN}║${NC}  ${BOLD}A${NC} = Kör ALLT (inklusive klara steg)                   ${CYAN}║${NC}" > /dev/tty
-    echo -e "  ${CYAN}║${NC}  ${BOLD}1-8${NC} = Välj specifika steg (t.ex. ${GREEN}6,8${NC})               ${CYAN}║${NC}" > /dev/tty
+    echo -e "  ${CYAN}║${NC}  ${BOLD}1-9${NC} = Välj specifika steg (t.ex. ${GREEN}6,9${NC})               ${CYAN}║${NC}" > /dev/tty
     echo -e "  ${CYAN}║${NC}  ${BOLD}Q${NC} = Avsluta                                            ${CYAN}║${NC}" > /dev/tty
     echo -e "  ${CYAN}║${NC}                                                        ${CYAN}║${NC}" > /dev/tty
     echo -e "  ${CYAN}╚════════════════════════════════════════════════════════╝${NC}" > /dev/tty
     echo "" > /dev/tty
-    echo -ne "  ${BOLD}Välj [N/A/1-8/Q]: ${NC}" > /dev/tty
+    echo -ne "  ${BOLD}Välj [N/A/1-9/Q]: ${NC}" > /dev/tty
     read MENU_CHOICE < /dev/tty
     
     case "${MENU_CHOICE^^}" in
@@ -433,13 +438,14 @@ else
             [ "$STATUS_CAMERAS" != "saknas" ] && DO_CAMERAS="n"
             [ "$STATUS_CFDNS" != "saknas" ] && DO_CF_DNS="n"
             [ "$STATUS_NPMCONF" != "saknas" ] && DO_NPM_CONF="n"
+            [ "$STATUS_RDP" != "saknas" ] && DO_RDP="n"
             msg_info "Kör bara steg som saknas."
             ;;
         *)
             # Specifika steg (t.ex. "6,8" eller "6 8" eller "6")
             # Sätt alla till n först
             DO_HOST="n"; DO_HA="n"; DO_CF="n"; DO_NPM="n"
-            DO_FRIGATE="n"; DO_CAMERAS="n"; DO_CF_DNS="n"; DO_NPM_CONF="n"
+            DO_FRIGATE="n"; DO_CAMERAS="n"; DO_CF_DNS="n"; DO_NPM_CONF="n"; DO_RDP="n"
             
             # Parsa val (stöd: "6,8", "6 8", "6, 8")
             SELECTED=$(echo "$MENU_CHOICE" | tr ',' ' ' | tr -s ' ')
@@ -453,6 +459,7 @@ else
                     6) DO_CAMERAS="y" ;;
                     7) DO_CF_DNS="y" ;;
                     8) DO_NPM_CONF="y" ;;
+                    9) DO_RDP="y" ;;
                     *) msg_warn "Okänt val: $sel (ignoreras)" ;;
                 esac
             done
@@ -554,7 +561,7 @@ elif [ "$(get_state host_configured)" == "true" ]; then
 fi
 
 # Hämta template om vi behöver LXC
-if [ "$DO_CF" == "y" ] || [ "$DO_NPM" == "y" ] || [ "$DO_FRIGATE" == "y" ]; then
+if [ "$DO_CF" == "y" ] || [ "$DO_NPM" == "y" ] || [ "$DO_FRIGATE" == "y" ] || [ "$DO_RDP" == "y" ]; then
     if [ "$DRY_RUN" != "true" ]; then
         TEMPLATE_PATH=$(get_debian_template)
         if [ -z "$TEMPLATE_PATH" ]; then
@@ -563,7 +570,7 @@ if [ "$DO_CF" == "y" ] || [ "$DO_NPM" == "y" ] || [ "$DO_FRIGATE" == "y" ]; then
             if ! ask_yes_no "Vill du fortsätta ändå (hoppar över container-skapning)?" "N"; then
                 exit 1
             fi
-            DO_CF="n"; DO_NPM="n"; DO_FRIGATE="n"
+            DO_CF="n"; DO_NPM="n"; DO_FRIGATE="n"; DO_RDP="n"
         fi
     else
         msg_dry "Skulle ladda ner Debian LXC-template"
@@ -751,6 +758,22 @@ Cloudflare Tunnel hanterar TLS externt — NPM ska INTE ha Force SSL."
     fi
 fi
 
+# 4.10 Remote Desktop (Guacamole + Desktop)
+CURRENT_STEP=$((CURRENT_STEP + 1))
+show_progress $CURRENT_STEP $TOTAL_STEPS "Remote Desktop"
+if [ "$DO_RDP" == "y" ]; then
+    print_banner "Remote Desktop" "Guacamole (webb-RDP proxy) och/eller Linux Desktop med xrdp."
+    if [ "$DRY_RUN" == "true" ]; then
+        msg_dry "Skulle skapa Guacamole CT och/eller Desktop CT med xrdp"
+    else
+        if ! bash modules/09-remote-desktop.sh "$TEMPLATE_PATH"; then
+            msg_err "Remote Desktop-installationen avslutades med fel."
+        else
+            set_state rdp_configured true
+        fi
+    fi
+fi
+
 # ==========================================
 # 5. Brandväggsverifiering
 # ==========================================
@@ -814,6 +837,7 @@ printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN
 printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "NPM Admin" "http://${NETWORK_PREFIX}.${IP_NPM}:81" "$(check_id_exists $IP_NPM 2>/dev/null && echo 'Installerad' || echo 'Hoppades över')"
 printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "Frigate" "http://${NETWORK_PREFIX}.${IP_FRIGATE}:5000" "$(check_id_exists $IP_FRIGATE 2>/dev/null && echo 'Installerad' || echo 'Hoppades över')"
 printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "Cloudflared" "(ingen UI — tunnel)" "$(check_id_exists $IP_CLOUDFLARED 2>/dev/null && echo 'Installerad' || echo 'Hoppades över')"
+printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "Guacamole" "http://${NETWORK_PREFIX}.${IP_GUACAMOLE:-107}:8080" "$(check_id_exists ${IP_GUACAMOLE:-107} 2>/dev/null && echo 'Installerad' || echo 'Hoppades över')"
 echo -e "${CYAN}└─────────────┴──────────────────────────────────┴──────────────────┘${NC}"
 
 # Wake-on-LAN info

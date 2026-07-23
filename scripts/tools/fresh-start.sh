@@ -68,8 +68,10 @@ IP_HA="${IP_HA:-100}"
 IP_CLOUDFLARED="${IP_CLOUDFLARED:-101}"
 IP_NPM="${IP_NPM:-102}"
 IP_FRIGATE="${IP_FRIGATE:-103}"
+IP_GUACAMOLE="${IP_GUACAMOLE:-107}"
+IP_DESKTOP="${IP_DESKTOP:-108}"
 
-for id in $IP_HA $IP_CLOUDFLARED $IP_NPM $IP_FRIGATE; do
+for id in $IP_HA $IP_CLOUDFLARED $IP_NPM $IP_FRIGATE $IP_GUACAMOLE $IP_DESKTOP; do
     if qm status $id &>/dev/null 2>&1; then
         echo -e "  ${CYAN}→${NC} Stoppar och tar bort VM $id..."
         qm stop $id >/dev/null 2>&1 || true
