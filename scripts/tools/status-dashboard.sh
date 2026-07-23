@@ -369,8 +369,26 @@ if [ "$JSON_OUTPUT" == "true" ]; then
     {
       "name": "Guacamole (Remote Desktop)",
       "internal": {"ip": "${GUAC_IP:-null}", "port": 8080, "url": "${GUAC_IP:+http://${GUAC_IP}:8080}", "status": "${GUAC_INT:-not_configured}"},
-      "external": {"url": "${GUAC_DOMAIN:+https://${GUAC_DOMAIN}}", "status": "${GUAC_EXT}"},
-      "npm": {"status": "${GUAC_NPM}"}
+      "external": {"url": "${GUAC_DOMAIN:+https://${GUAC_DOMAIN}}", "status": "${GUAC_EXT:-not_configured}"},
+      "npm": {"status": "${GUAC_NPM:-not_configured}"}
+    },
+    {
+      "name": "Samba",
+      "internal": {"ip": "${SAMBA_IP:-null}", "port": 445, "url": "smb://${SAMBA_IP:-unknown}", "status": "${SAMBA_INT:-not_configured}"},
+      "external": {"url": null, "status": "not_applicable"},
+      "npm": {"status": "not_applicable"}
+    },
+    {
+      "name": "Immich",
+      "internal": {"ip": "${IMMICH_IP:-null}", "port": 2283, "url": "http://${IMMICH_IP:-unknown}:2283", "status": "${IMMICH_INT:-not_configured}"},
+      "external": {"url": "${CF_DOMAIN:+https://photos.${CF_DOMAIN}}", "status": "${IMMICH_EXT:-not_configured}"},
+      "npm": {"status": "${IMMICH_NPM:-not_configured}"}
+    },
+    {
+      "name": "NUT (UPS)",
+      "internal": {"ip": "${NUT_IP:-null}", "port": 3493, "url": null, "status": "${NUT_INT:-not_configured}"},
+      "external": {"url": null, "status": "not_applicable"},
+      "npm": {"status": "not_applicable"}
     }
   ]
 }
@@ -464,9 +482,9 @@ if [ -n "$SAMBA_IP" ]; then
     print_row "Samba" "//${SAMBA_IP}/share" "${SAMBA_INT:-down}" "— (intern)" "not_configured" "—" "not_configured"
 fi
 if [ -n "$IMMICH_IP" ]; then
-    IMMICH_EXT_URL="${IMMICH_DOMAIN:+https://${IMMICH_DOMAIN}}"
+    IMMICH_EXT_URL="${CF_DOMAIN:+https://photos.${CF_DOMAIN}}"
     [ -z "$IMMICH_EXT_URL" ] && IMMICH_EXT_URL="—"
-    print_row "Immich" "http://${IMMICH_IP}:2283" "${IMMICH_INT:-down}" "$IMMICH_EXT_URL" "not_configured" "—" "not_configured"
+    print_row "Immich" "http://${IMMICH_IP}:2283" "${IMMICH_INT:-down}" "$IMMICH_EXT_URL" "${IMMICH_EXT:-not_configured}" "—" "not_configured"
 fi
 if [ -n "$NUT_IP" ]; then
     print_row "NUT (UPS)" "http://${NUT_IP}:3493" "${NUT_INT:-down}" "— (intern)" "not_configured" "—" "not_configured"

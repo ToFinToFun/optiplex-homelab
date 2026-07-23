@@ -135,7 +135,7 @@ trap cleanup_on_exit EXIT
 trap 'exit 130' INT TERM
 
 # Totalt antal steg (för progressbar)
-TOTAL_STEPS=10
+TOTAL_STEPS=14
 CURRENT_STEP=0
 
 # ==========================================
@@ -218,8 +218,9 @@ if [ "$HEADLESS" == "true" ]; then
         if [ $IP_CONFLICTS -gt 0 ]; then
             echo -e "    ${YELLOW}⚠${NC} ${IP_CONFLICTS} IP-konflikt(er) hittade — justerar automatiskt..."
             # Auto-fixa: hitta nästa lediga IP för varje konflikt
-            for _svc in "IP_HA:${IP_HA}:HA" "IP_CLOUDFLARED:${IP_CLOUDFLARED}:Cloudflared" "IP_NPM:${IP_NPM}:NPM" "IP_FRIGATE:${IP_FRIGATE}:Frigate"; do
+            for _svc in "IP_HA:${IP_HA}:HA" "IP_CLOUDFLARED:${IP_CLOUDFLARED}:Cloudflared" "IP_NPM:${IP_NPM}:NPM" "IP_FRIGATE:${IP_FRIGATE}:Frigate" "IP_ADGUARD:${IP_ADGUARD:-}:AdGuard" "IP_GUACAMOLE:${IP_GUACAMOLE:-}:Guacamole" "IP_DESKTOP:${IP_DESKTOP:-}:Desktop" "IP_SAMBA:${IP_SAMBA:-}:Samba" "IP_IMMICH:${IP_IMMICH:-}:Immich" "IP_NUT:${IP_NUT:-}:NUT"; do
                 _var="${_svc%%:*}"; _rest="${_svc#*:}"; _val="${_rest%%:*}"; _name="${_rest#*:}"
+                [ -z "$_val" ] && continue  # Hoppa över ej konfigurerade
                 _full="${NETWORK_PREFIX}.${_val}"
                 if ! check_ip_free "$_full"; then
                     _new=$(find_free_ip "$NETWORK_PREFIX" "$_val")
@@ -554,6 +555,11 @@ else
                 _fix_ip IP_NPM "$IP_NPM" "NPM"
                 _fix_ip IP_FRIGATE "$IP_FRIGATE" "Frigate"
                 _fix_ip IP_ADGUARD "$IP_ADGUARD" "AdGuard Home"
+                [ -n "${IP_GUACAMOLE:-}" ] && _fix_ip IP_GUACAMOLE "$IP_GUACAMOLE" "Guacamole"
+                [ -n "${IP_DESKTOP:-}" ] && _fix_ip IP_DESKTOP "$IP_DESKTOP" "Desktop"
+                [ -n "${IP_SAMBA:-}" ] && _fix_ip IP_SAMBA "$IP_SAMBA" "Samba"
+                [ -n "${IP_IMMICH:-}" ] && _fix_ip IP_IMMICH "$IP_IMMICH" "Immich"
+                [ -n "${IP_NUT:-}" ] && _fix_ip IP_NUT "$IP_NUT" "NUT"
                 msg_ok "IP-adresser justerade."
             else
                 msg_info "OK — du kan ändra IP:erna manuellt i setup.env senare."
@@ -589,6 +595,9 @@ DO_CF_DNS="y"
 DO_NPM_CONF="y"
 DO_ADGUARD="y"
 DO_RDP="n"
+DO_SAMBA="n"
+DO_IMMICH="n"
+DO_NUT="n"
 
 # Inventera vad som redan är klart
 STATUS_HOST="saknas"
@@ -640,6 +649,9 @@ if [ "$HEADLESS" == "true" ]; then
     DO_CAMERAS="n"
     DO_CF_DNS="n"
     DO_NPM_CONF="n"
+    DO_SAMBA="n"
+    DO_IMMICH="n"
+    DO_NUT="n"
     msg_info "Hoppar över: Kameror, Cloudflare DNS, NPM-regler (kräver manuell input)."
     msg_info "Kör 'bash setup.sh' interaktivt efterhand för att konfigurera dessa."
 else
@@ -712,6 +724,7 @@ else
             # Sätt alla till n, aktivera bara upgrade-paths
             DO_HOST="n"; DO_HA="n"; DO_CF="n"; DO_ADGUARD="n"; DO_NPM="n"
             DO_CAMERAS="n"; DO_CF_DNS="n"; DO_NPM_CONF="n"; DO_RDP="n"
+            DO_SAMBA="n"; DO_IMMICH="n"; DO_NUT="n"
             # Frigate: erbjud upgrade om den finns
             if [ "$STATUS_FRIGATE" != "saknas" ]; then
                 DO_FRIGATE="upgrade"
@@ -935,6 +948,47 @@ if [ "$DO_FRIGATE" == "y" ] && [ -n "$FRIGATE_FOUND" ]; then
     fi
 fi
 
+# Säkerhetskontroll: AdGuard
+ADGUARD_FOUND=$(resolve_ct_id "adguard" "${IP_ADGUARD:-104}")
+if [ "$DO_ADGUARD" == "y" ] && [ -n "$ADGUARD_FOUND" ]; then
+    msg_warn "CT ${ADGUARD_FOUND} (AdGuard Home) finns redan."
+    if ! ask_yes_no "Vill du RADERA och återskapa den?" "N"; then
+        DO_ADGUARD="n"
+        msg_skip "Behåller befintlig AdGuard-container."
+    fi
+fi
+# Säkerhetskontroll: Tillägg (Samba, Immich, NUT)
+if [ "${DO_SAMBA:-n}" == "y" ]; then
+    SAMBA_FOUND=$(resolve_ct_id "samba" "${IP_SAMBA:-}")
+    if [ -n "$SAMBA_FOUND" ]; then
+        msg_warn "CT ${SAMBA_FOUND} (Samba) finns redan."
+        if ! ask_yes_no "Vill du RADERA och återskapa den?" "N"; then
+            DO_SAMBA="n"
+            msg_skip "Behåller befintlig Samba-container."
+        fi
+    fi
+fi
+if [ "${DO_IMMICH:-n}" == "y" ]; then
+    IMMICH_FOUND=$(resolve_ct_id "immich" "${IP_IMMICH:-}")
+    if [ -n "$IMMICH_FOUND" ]; then
+        msg_warn "CT ${IMMICH_FOUND} (Immich) finns redan."
+        if ! ask_yes_no "Vill du RADERA och återskapa den?" "N"; then
+            DO_IMMICH="n"
+            msg_skip "Behåller befintlig Immich-container."
+        fi
+    fi
+fi
+if [ "${DO_NUT:-n}" == "y" ]; then
+    NUT_FOUND=$(resolve_ct_id "nut" "${IP_NUT:-}")
+    if [ -n "$NUT_FOUND" ]; then
+        msg_warn "CT ${NUT_FOUND} (NUT) finns redan."
+        if ! ask_yes_no "Vill du RADERA och återskapa den?" "N"; then
+            DO_NUT="n"
+            msg_skip "Behåller befintlig NUT-container."
+        fi
+    fi
+fi
+
 # Aktivera tunnel på befintlig Cloudflared-container om token nu finns men tunnel inte är aktiv
 CF_CT=$(resolve_ct_id "cloudflared" "$IP_CLOUDFLARED")
 if [ "$DO_CF" == "n" ] && [ -n "$CF_TUNNEL_TOKEN" ] && [ -n "$CF_CT" ]; then
@@ -1032,8 +1086,11 @@ if [ "$DO_HA" == "y" ]; then
             fi
         else
             rollback_clear  # Lyckades — inget att ångra
-            # HA använder alltid DHCP internt (HAOS), upptäck IP
-            HA_ACTUAL_IP=$(pct exec "$IP_HA" -- bash -c "hostname -I 2>/dev/null" 2>/dev/null | awk '{print $1}' || true)
+            # HA är en VM (inte CT) — försök hämta IP via qemu-guest-agent
+            HA_ACTUAL_IP=""
+            if qm agent "$IP_HA" ping 2>/dev/null; then
+                HA_ACTUAL_IP=$(qm agent "$IP_HA" network-get-interfaces 2>/dev/null | grep -oP '"ip-address"\s*:\s*"\K[0-9.]+' | grep -v '^127\.' | head -1 || true)
+            fi
             [ -z "$HA_ACTUAL_IP" ] && HA_ACTUAL_IP="${NETWORK_PREFIX}.${IP_HA}"
             wait_for_service "$HA_ACTUAL_IP" 8123 "Home Assistant" 180
         fi
@@ -1082,6 +1139,7 @@ if [ "$DO_ADGUARD" == "y" ]; then
             fi
         else
             rollback_clear
+            ADGUARD_ACTUAL_IP=$(discover_ct_ip "${IP_ADGUARD:-104}" "${NETWORK_PREFIX}.${IP_ADGUARD:-104}" 15)
         fi
     fi
 fi
@@ -1358,6 +1416,7 @@ if [ "$DO_RDP" == "y" ]; then
             msg_err "Remote Desktop-installationen avslutades med fel."
         else
             set_state rdp_configured true
+            GUAC_ACTUAL_IP=$(discover_ct_ip "${IP_GUACAMOLE:-107}" "${NETWORK_PREFIX}.${IP_GUACAMOLE:-107}" 15)
         fi
     fi
 fi
@@ -1374,6 +1433,7 @@ if [ "${DO_SAMBA:-n}" == "y" ]; then
             msg_err "Samba-installationen avslutades med fel."
         else
             set_state samba_configured true
+            SAMBA_ACTUAL_IP=$(discover_ct_ip "${IP_SAMBA:-110}" "${NETWORK_PREFIX}.${IP_SAMBA:-110}" 15)
         fi
     fi
 fi
@@ -1387,6 +1447,7 @@ if [ "${DO_IMMICH:-n}" == "y" ]; then
             msg_err "Immich-installationen avslutades med fel."
         else
             set_state immich_configured true
+            IMMICH_ACTUAL_IP=$(discover_ct_ip "${IP_IMMICH:-111}" "${NETWORK_PREFIX}.${IP_IMMICH:-111}" 15)
         fi
     fi
 fi
@@ -1400,6 +1461,7 @@ if [ "${DO_NUT:-n}" == "y" ]; then
             msg_err "NUT-installationen avslutades med fel."
         else
             set_state nut_configured true
+            NUT_ACTUAL_IP=$(discover_ct_ip "${IP_NUT:-112}" "${NETWORK_PREFIX}.${IP_NUT:-112}" 15)
         fi
     fi
 fi
@@ -1479,11 +1541,11 @@ echo ""
 _sum_ha_ip="${HA_ACTUAL_IP:-${NETWORK_PREFIX}.${IP_HA}}"
 _sum_npm_ip="${NPM_ACTUAL_IP:-${NETWORK_PREFIX}.${IP_NPM}}"
 _sum_frigate_ip="${FRIGATE_ACTUAL_IP:-${NETWORK_PREFIX}.${IP_FRIGATE}}"
-_sum_guac_ip="${GUAC_ACTUAL_IP:-${NETWORK_PREFIX}.${IP_GUACAMOLE:-108}}"
+_sum_guac_ip="${GUAC_ACTUAL_IP:-${NETWORK_PREFIX}.${IP_GUACAMOLE:-107}}"
 _sum_adguard_ip="${ADGUARD_ACTUAL_IP:-${NETWORK_PREFIX}.${IP_ADGUARD:-104}}"
-_sum_samba_ip="${SAMBA_ACTUAL_IP:-${NETWORK_PREFIX}.${IP_SAMBA:-105}}"
-_sum_immich_ip="${IMMICH_ACTUAL_IP:-${NETWORK_PREFIX}.${IP_IMMICH:-106}}"
-_sum_nut_ip="${NUT_ACTUAL_IP:-${NETWORK_PREFIX}.${IP_NUT:-107}}"
+_sum_samba_ip="${SAMBA_ACTUAL_IP:-${NETWORK_PREFIX}.${IP_SAMBA:-110}}"
+_sum_immich_ip="${IMMICH_ACTUAL_IP:-${NETWORK_PREFIX}.${IP_IMMICH:-111}}"
+_sum_nut_ip="${NUT_ACTUAL_IP:-${NETWORK_PREFIX}.${IP_NUT:-112}}"
 
 echo -e "${CYAN}┌─────────────┬──────────────────────────────────┬──────────────────┐${NC}"
 echo -e "${CYAN}│${NC} ${BOLD}Tjänst${NC}      ${CYAN}│${NC} ${BOLD}Lokal URL${NC}                         ${CYAN}│${NC} ${BOLD}Status${NC}           ${CYAN}│${NC}"
@@ -1493,15 +1555,15 @@ printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN
 printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "NPM Admin" "http://${_sum_npm_ip}:81" "$(check_id_exists $IP_NPM 2>/dev/null && echo 'Installerad' || echo 'Hoppades över')"
 printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "Frigate" "http://${_sum_frigate_ip}:5000" "$(check_id_exists $IP_FRIGATE 2>/dev/null && echo 'Installerad' || echo 'Hoppades över')"
 printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "Cloudflared" "(ingen UI — tunnel)" "$(check_id_exists $IP_CLOUDFLARED 2>/dev/null && echo 'Installerad' || echo 'Hoppades över')"
-printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "Guacamole" "http://${_sum_guac_ip}:8080" "$(check_id_exists ${IP_GUACAMOLE:-108} 2>/dev/null && echo 'Installerad' || echo 'Hoppades över')"
-printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "AdGuard" "http://${_sum_adguard_ip}:3000" "$(check_id_exists ${IP_ADGUARD:-104} 2>/dev/null && echo 'Installerad' || echo 'Hoppades över')"
-if check_id_exists ${IP_SAMBA:-105} 2>/dev/null; then
+printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "Guacamole" "http://${_sum_guac_ip}:8080" "$(check_id_exists ${IP_GUACAMOLE:-107} 2>/dev/null && echo 'Installerad' || echo 'Hoppades över')"
+printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "AdGuard" "http://${_sum_adguard_ip}" "$(check_id_exists ${IP_ADGUARD:-104} 2>/dev/null && echo 'Installerad' || echo 'Hoppades över')"
+if check_id_exists ${IP_SAMBA:-110} 2>/dev/null; then
     printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "Samba" "//${_sum_samba_ip}/share" "Installerad"
 fi
-if check_id_exists ${IP_IMMICH:-106} 2>/dev/null; then
+if check_id_exists ${IP_IMMICH:-111} 2>/dev/null; then
     printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "Immich" "http://${_sum_immich_ip}:2283" "Installerad"
 fi
-if check_id_exists ${IP_NUT:-107} 2>/dev/null; then
+if check_id_exists ${IP_NUT:-112} 2>/dev/null; then
     printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "NUT" "http://${_sum_nut_ip}:3493" "Installerad"
 fi
 echo -e "${CYAN}└─────────────┴──────────────────────────────────┴──────────────────┘${NC}"

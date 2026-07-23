@@ -307,21 +307,25 @@ check_config_match "ha" "${IP_HA:-100}"
 check_config_match "cloudflared" "${IP_CLOUDFLARED:-101}"
 check_config_match "npm" "${IP_NPM:-102}"
 check_config_match "frigate" "${IP_FRIGATE:-103}"
+check_config_match "adguard" "${IP_ADGUARD:-104}"
 check_config_match "guacamole" "${IP_GUACAMOLE:-107}"
 check_config_match "desktop" "${IP_DESKTOP:-108}"
+[ -n "${IP_SAMBA:-}" ] && check_config_match "samba" "${IP_SAMBA}"
+[ -n "${IP_IMMICH:-}" ] && check_config_match "immich" "${IP_IMMICH}"
+[ -n "${IP_NUT:-}" ] && check_config_match "nut" "${IP_NUT}"
 
 # Erbjud att uppdatera setup.env om mismatchar hittades
 if [ ${#CONFIG_UPDATES[@]} -gt 0 ]; then
     echo ""
     msg_info "Följande IP-ändringar kan sparas till setup.env:"
     for svc in "${!CONFIG_UPDATES[@]}"; do
-        local var_name="${SVC_TO_VAR[$svc]}"
-        local new_suffix="${CONFIG_UPDATES[$svc]}"
+        var_name="${SVC_TO_VAR[$svc]}"
+        new_suffix="${CONFIG_UPDATES[$svc]}"
         msg_info "  ${var_name}: ${!var_name} → ${new_suffix}"
     done
     echo ""
     
-    local do_update=false
+    do_update=false
     if [ "$AUTO_FIX" == "true" ]; then
         do_update=true
     else
@@ -332,8 +336,8 @@ if [ ${#CONFIG_UPDATES[@]} -gt 0 ]; then
     
     if [ "$do_update" == "true" ]; then
         for svc in "${!CONFIG_UPDATES[@]}"; do
-            local var_name="${SVC_TO_VAR[$svc]}"
-            local new_suffix="${CONFIG_UPDATES[$svc]}"
+            var_name="${SVC_TO_VAR[$svc]}"
+            new_suffix="${CONFIG_UPDATES[$svc]}"
             # Uppdatera i setup.env
             if grep -q "^${var_name}=" setup.env 2>/dev/null; then
                 sed -i "s/^${var_name}=.*/${var_name}=\"${new_suffix}\"/" setup.env

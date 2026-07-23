@@ -15,6 +15,7 @@
 
 source setup.env
 source lib/ui.sh
+source lib/config.sh
 source lib/network.sh
 TEMPLATE_PATH=$1
 
@@ -157,6 +158,8 @@ UPSDCONF"
 
 # upsd.users — admin + monitor-användare
 NUT_PASS=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 16)
+# Spara NUT-lösenord i state-fil för diagnostik och återställning
+set_state nut_password "$NUT_PASS"
 pct exec "${IP_NUT}" -- bash -c "cat > /etc/nut/upsd.users << USERSCONF
 [admin]
     password = ${NUT_PASS}

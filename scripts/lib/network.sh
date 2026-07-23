@@ -190,6 +190,13 @@ verify_planned_ips() {
     local prefix="${NETWORK_PREFIX}"
     local conflicts=0
     local services=("HA:${IP_HA}" "Cloudflared:${IP_CLOUDFLARED}" "NPM:${IP_NPM}" "Frigate:${IP_FRIGATE}")
+    # Lägg till fler tjänster om de är konfigurerade
+    [ -n "${IP_ADGUARD:-}" ] && services+=("AdGuard:${IP_ADGUARD}")
+    [ -n "${IP_GUACAMOLE:-}" ] && services+=("Guacamole:${IP_GUACAMOLE}")
+    [ -n "${IP_DESKTOP:-}" ] && services+=("Desktop:${IP_DESKTOP}")
+    [ -n "${IP_SAMBA:-}" ] && services+=("Samba:${IP_SAMBA}")
+    [ -n "${IP_IMMICH:-}" ] && services+=("Immich:${IP_IMMICH}")
+    [ -n "${IP_NUT:-}" ] && services+=("NUT:${IP_NUT}")
     
     msg_info "Kontrollerar att planerade IP-adresser är lediga..."
     
