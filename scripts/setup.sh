@@ -602,9 +602,24 @@ fi
 
 if [ "$DO_FRIGATE" == "y" ] && check_id_exists $IP_FRIGATE 2>/dev/null; then
     msg_warn "CT $IP_FRIGATE (Frigate) finns redan."
-    if ! ask_yes_no "Vill du RADERA och återskapa den?" "N"; then
-        DO_FRIGATE="n"
-        msg_skip "Behåller befintlig Frigate-container."
+    if [ "$HEADLESS" == "true" ]; then
+        # Headless: uppgradera/fixa automatiskt, radera aldrig
+        DO_FRIGATE="upgrade"
+        msg_info "(headless) Uppgraderar/fixar befintlig Frigate..."
+    else
+        tty_echo ""
+        tty_echo "  ${BOLD}Vad vill du göra?${NC}"
+        tty_echo "  1) Uppgradera/fixa (uppdatera image, behåll config & inspelningar)"
+        tty_echo "  2) Radera och återskapa från scratch"
+        tty_echo "  3) Hoppa över (behåll som det är)"
+        tty_echo ""
+        tty_printf "  ${BOLD}Välj [1/2/3] (default: 1): ${NC}"
+        tty_read FRIGATE_CHOICE
+        case "${FRIGATE_CHOICE:-1}" in
+            1) DO_FRIGATE="upgrade" ;;
+            2) DO_FRIGATE="y" ;;
+            *) DO_FRIGATE="n"; msg_skip "Behåller befintlig Frigate-container." ;;
+        esac
     fi
 fi
 
@@ -830,6 +845,77 @@ if [ "$DO_FRIGATE" == "y" ]; then
                 wait_for_service "${NETWORK_PREFIX}.${IP_FRIGATE}" 5000 "Frigate" 90
             fi
         fi
+    fi
+fi
+
+# ── Frigate Upgrade/Fix (om CT redan finns) ──────────────────
+if [ "$DO_FRIGATE" == "upgrade" ]; then
+    print_banner "Frigate Uppgradering" "Uppdaterar Frigate-image till senaste 0.18.x — behåller config och inspelningar."
+    
+    CT_IP="${NETWORK_PREFIX}.${IP_FRIGATE}"
+    
+    # Hitta senaste version (samma logik som i module 05)
+    msg_info "Söker senaste Frigate 0.18-version..."
+    NEW_TAG=$(pct exec "${IP_FRIGATE}" -- bash -c '
+        curl -fsSL "https://api.github.com/repos/blakeblackshear/frigate/releases?per_page=20" 2>/dev/null | \
+        python3 -c "
+import json,sys
+releases = json.load(sys.stdin)
+for r in releases:
+    tag = r.get(\"tag_name\",\"\").lstrip(\"v\")
+    if tag.startswith(\"0.18.\"):
+        print(tag)
+        break
+" 2>/dev/null
+    ' 2>/dev/null)
+    
+    [ -z "$NEW_TAG" ] && NEW_TAG="0.18.0-beta1"
+    
+    # Kolla nuvarande version
+    CURRENT_TAG=$(pct exec "${IP_FRIGATE}" -- bash -c \
+        "grep -oP 'image:.*frigate:\K[^\"]+' /opt/frigate/docker-compose.yml 2>/dev/null || echo 'okänd'" 2>/dev/null)
+    
+    msg_info "Nuvarande: ${CURRENT_TAG:-okänd}"
+    msg_info "Senaste:   ${NEW_TAG}"
+    
+    if [ "$CURRENT_TAG" == "$NEW_TAG" ]; then
+        msg_ok "Frigate kör redan senaste versionen (${NEW_TAG})!"
+        # Kolla ändå om den är igång
+        if ! pct exec "${IP_FRIGATE}" -- bash -c "docker ps --filter name=frigate --format '{{.Status}}'" 2>/dev/null | grep -qi "up"; then
+            msg_warn "Frigate-containern kör inte! Startar..."
+            pct exec "${IP_FRIGATE}" -- bash -c "cd /opt/frigate && docker compose up -d" 2>&1 | tail -3
+        fi
+    else
+        msg_info "Uppdaterar docker-compose.yml till ${NEW_TAG}..."
+        pct exec "${IP_FRIGATE}" -- bash -c "
+            cd /opt/frigate
+            # Byt image-tag i docker-compose.yml
+            sed -i \"s|image: ghcr.io/blakeblackshear/frigate:.*|image: ghcr.io/blakeblackshear/frigate:${NEW_TAG}|\" docker-compose.yml
+            # Pull + restart
+            echo '  Laddar ner ny image...'
+            docker compose pull 2>&1 | tail -3
+            echo '  Startar om Frigate...'
+            docker compose up -d 2>&1 | tail -3
+        "
+    fi
+    
+    # Verifiering: vänta på att Frigate svarar
+    msg_info "Väntar på att Frigate startar..."
+    FRIGATE_UP=false
+    for i in $(seq 1 20); do
+        if pct exec "${IP_FRIGATE}" -- bash -c "curl -s -o /dev/null -w '%{http_code}' http://localhost:5000/" 2>/dev/null | grep -q "200\|301\|302"; then
+            FRIGATE_UP=true
+            break
+        fi
+        sleep 3
+    done
+    
+    if [ "$FRIGATE_UP" == "true" ]; then
+        msg_ok "Frigate ${NEW_TAG} kör och svarar på http://${CT_IP}:5000"
+    else
+        msg_warn "Frigate svarar inte ännu. Felsök:"
+        msg_info "  pct exec ${IP_FRIGATE} -- docker logs frigate --tail 30"
+        pct exec "${IP_FRIGATE}" -- bash -c "docker logs frigate --tail 5" 2>&1 | head -5
     fi
 fi
 
