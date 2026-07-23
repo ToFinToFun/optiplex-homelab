@@ -56,7 +56,7 @@ sleep 5
 
 msg_info "Installerar Docker och Intel drivrutiner..."
 pct exec "${IP_FRIGATE}" -- bash -c "apt-get update -qq > /dev/null 2>&1"
-pct exec "${IP_FRIGATE}" -- bash -c "apt-get install -y -qq curl ca-certificates gnupg > /dev/null 2>&1"
+pct exec "${IP_FRIGATE}" -- bash -c "apt-get install -y -qq curl ca-certificates gnupg python3 > /dev/null 2>&1"
 
 # Aktivera non-free och non-free-firmware repos (krävs för Intel VA-driver)
 msg_info "Aktiverar non-free repos för Intel GPU-driver..."
@@ -86,12 +86,42 @@ pct exec "${IP_FRIGATE}" -- bash -c "apt-get install -y -qq docker-ce docker-ce-
 msg_info "Konfigurerar Frigate..."
 pct exec "${IP_FRIGATE}" -- bash -c "mkdir -p /opt/frigate/config /opt/frigate/storage"
 
-# Välj version
-if ask_yes_no "Vill du använda Frigate 0.18.0 (rekommenderas, senaste stabila)? Svara 'n' för äldre 0.17.2." "Y"; then
-    FRIGATE_TAG="0.18.0"
+# Hitta senaste Frigate 0.18.x version via GitHub Releases API
+msg_info "Söker senaste Frigate 0.18-version..."
+FRIGATE_TAG=$(pct exec "${IP_FRIGATE}" -- bash -c '
+    curl -fsSL "https://api.github.com/repos/blakeblackshear/frigate/releases?per_page=20" 2>/dev/null | \
+    python3 -c "
+import json,sys,re
+releases = json.load(sys.stdin)
+# Hitta senaste 0.18.x release (stabil eller beta)
+for r in releases:
+    tag = r.get(\"tag_name\",\"\").lstrip(\"v\")
+    if tag.startswith(\"0.18.\"):
+        print(tag)
+        break
+" 2>/dev/null
+' 2>/dev/null)
+
+# Fallback om dynamisk lookup misslyckas
+if [ -z "$FRIGATE_TAG" ] || [ "$FRIGATE_TAG" == "" ]; then
+    FRIGATE_TAG="0.18.0-beta1"
+    msg_warn "Kunde inte hämta senaste tag — använder fallback: ${FRIGATE_TAG}"
 else
-    FRIGATE_TAG="0.17.2"
+    msg_ok "Senaste Frigate 0.18-version: ${FRIGATE_TAG}"
 fi
+
+# Verifiera att taggen faktiskt finns (pull-test)
+msg_info "Verifierar att image finns: ghcr.io/blakeblackshear/frigate:${FRIGATE_TAG}..."
+if ! pct exec "${IP_FRIGATE}" -- bash -c "docker pull ghcr.io/blakeblackshear/frigate:${FRIGATE_TAG} 2>&1 | tail -5"; then
+    msg_err "Kunde inte ladda ner Frigate ${FRIGATE_TAG}!"
+    msg_info "Försöker med 0.18.0-beta1 som fallback..."
+    FRIGATE_TAG="0.18.0-beta1"
+    if ! pct exec "${IP_FRIGATE}" -- bash -c "docker pull ghcr.io/blakeblackshear/frigate:${FRIGATE_TAG} 2>&1 | tail -5"; then
+        msg_err "Kunde inte ladda ner Frigate alls. Kontrollera internetanslutning."
+        return 1 2>/dev/null || exit 1
+    fi
+fi
+msg_ok "Frigate ${FRIGATE_TAG} nedladdad"
 
 cat > /tmp/frigate-compose.yml << EOF
 services:
@@ -173,13 +203,36 @@ pct push "${IP_FRIGATE}" /tmp/frigate-config.yml /opt/frigate/config/config.yml
 rm -f /tmp/frigate-config.yml
 
 msg_info "Startar Frigate via Docker Compose..."
-pct exec "${IP_FRIGATE}" -- bash -c "cd /opt/frigate && docker compose up -d" > /dev/null 2>&1
+pct exec "${IP_FRIGATE}" -- bash -c "cd /opt/frigate && docker compose up -d" 2>&1 | tail -3
 
-# Verifiering
+# Verifiering: vänta på att Frigate faktiskt startar
+msg_info "Väntar på att Frigate startar (kan ta 30-60 sek)..."
+FRIGATE_READY=false
+for i in $(seq 1 20); do
+    if pct exec "${IP_FRIGATE}" -- bash -c "curl -s -o /dev/null -w '%{http_code}' http://localhost:5000/" 2>/dev/null | grep -q "200\|301\|302"; then
+        FRIGATE_READY=true
+        break
+    fi
+    # Kolla om containern överhuvudtaget kör
+    if ! pct exec "${IP_FRIGATE}" -- bash -c "docker ps --filter name=frigate --format '{{.Status}}'" 2>/dev/null | grep -qi "up"; then
+        msg_warn "Frigate-container är inte igång. Kollar loggar..."
+        pct exec "${IP_FRIGATE}" -- bash -c "docker logs frigate --tail 10" 2>&1 | head -10
+        break
+    fi
+    sleep 3
+done
+
+if [ "$FRIGATE_READY" == "true" ]; then
+    msg_ok "Frigate svarar på port 5000!"
+else
+    msg_warn "Frigate svarar inte ännu på port 5000 — kan behöva mer tid."
+    msg_info "Felsök: pct exec ${IP_FRIGATE} -- docker logs frigate --tail 30"
+fi
+
+# iGPU-verifiering
 if pct exec "${IP_FRIGATE}" -- vainfo 2>&1 | grep -qi "intel\|iHD"; then
     msg_ok "iGPU-passthrough fungerar (vainfo OK)"
 else
     msg_warn "iGPU-passthrough verkar ha problem. Kolla BIOS (VT-d, ReBAR)."
 fi
-
-msg_ok "Frigate installerat och igång! Du kan nu konfigurera via UI på port 5000."
+msg_ok "Frigate ${FRIGATE_TAG} installerat! UI: http://${CT_IP}:5000"
