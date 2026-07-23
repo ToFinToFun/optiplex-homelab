@@ -31,24 +31,41 @@ if pvesm status | grep -q "frigate-storage"; then
     pct set "${IP_FRIGATE}" -mp0 "frigate-storage:100,mp=/opt/frigate/storage,backup=0"
 fi
 
-# iGPU passthrough — skrivs direkt till conf-filen (pct set stöder inte lxc.* options)
+# iGPU passthrough — kontrollera att hosten har /dev/dri INNAN vi konfigurerar
 msg_info "Konfigurerar iGPU passthrough..."
-CONF_FILE="/etc/pve/lxc/${IP_FRIGATE}.conf"
-if [ -f "$CONF_FILE" ]; then
-    # Ta bort eventuella gamla lxc.cgroup2/mount-rader först
-    sed -i '/^lxc\.cgroup2\.devices\.allow/d' "$CONF_FILE"
-    sed -i '/^lxc\.mount\.entry.*dri/d' "$CONF_FILE"
+IGPU_OK=false
+if [ ! -e /dev/dri/renderD128 ]; then
+    msg_err "/dev/dri/renderD128 finns INTE på Proxmox-hosten!"
+    msg_info "Möjliga orsaker:"
+    msg_info "  1. iGPU är avstängd i BIOS (slå på 'Multi-Monitor' eller 'iGPU Enabled')"
+    msg_info "  2. i915-drivern är inte laddad (kör: modprobe i915)"
+    msg_info "  3. Servern behöver startas om efter BIOS-ändring"
+    msg_info ""
+    msg_info "Kontrollera med: ls -la /dev/dri/ && lspci | grep VGA"
+    msg_info "Frigate installeras ändå, men utan GPU-acceleration."
+    msg_info "Kör scriptet igen efter reboot för att aktivera iGPU."
+else
+    msg_ok "/dev/dri/renderD128 hittad på hosten"
+    IGPU_OK=true
     
-    # Lägg till iGPU-access
-    cat >> "$CONF_FILE" << 'EOF'
+    CONF_FILE="/etc/pve/lxc/${IP_FRIGATE}.conf"
+    if [ -f "$CONF_FILE" ]; then
+        # Ta bort eventuella gamla lxc.cgroup2/mount-rader först
+        sed -i '/^lxc\.cgroup2\.devices\.allow/d' "$CONF_FILE"
+        sed -i '/^lxc\.mount\.entry.*dri/d' "$CONF_FILE"
+        
+        # Lägg till iGPU-access
+        cat >> "$CONF_FILE" << 'EOF'
 lxc.cgroup2.devices.allow: c 226:0 rwm
 lxc.cgroup2.devices.allow: c 226:128 rwm
 lxc.mount.entry: /dev/dri/card0 dev/dri/card0 none bind,optional,create=file
 lxc.mount.entry: /dev/dri/renderD128 dev/dri/renderD128 none bind,optional,create=file
 EOF
-    msg_ok "iGPU passthrough konfigurerat i ${CONF_FILE}"
-else
-    msg_warn "Conf-fil ${CONF_FILE} hittades inte — iGPU-passthrough kunde inte konfigureras."
+        msg_ok "iGPU passthrough konfigurerat i ${CONF_FILE}"
+    else
+        msg_warn "Conf-fil ${CONF_FILE} hittades inte — iGPU-passthrough kunde inte konfigureras."
+        IGPU_OK=false
+    fi
 fi
 
 pct start "${IP_FRIGATE}"
@@ -71,9 +88,22 @@ pct exec "${IP_FRIGATE}" -- bash -c "
 "
 pct exec "${IP_FRIGATE}" -- bash -c "apt-get update -qq > /dev/null 2>&1"
 
-# Intel media driver (non-free)
-pct exec "${IP_FRIGATE}" -- bash -c "apt-get install -y -qq intel-media-va-driver-non-free vainfo > /dev/null 2>&1" || \
-    msg_warn "Intel VA-driver kunde inte installeras (kan läggas till manuellt senare)"
+# Intel media driver (non-free) — krävs för HW-acceleration
+if [ "$IGPU_OK" == "true" ]; then
+    msg_info "Installerar Intel VA-driver (intel-media-va-driver-non-free)..."
+    VA_OUTPUT=$(pct exec "${IP_FRIGATE}" -- bash -c "apt-get install -y intel-media-va-driver-non-free vainfo 2>&1")
+    VA_EXIT=$?
+    if [ $VA_EXIT -ne 0 ]; then
+        msg_warn "Intel VA-driver kunde inte installeras:"
+        echo "$VA_OUTPUT" | tail -5
+        msg_info "Frigate körs ändå men utan HW-acceleration."
+        msg_info "Felsök: pct exec ${IP_FRIGATE} -- apt-get install -y intel-media-va-driver-non-free"
+    else
+        msg_ok "Intel VA-driver installerad"
+    fi
+else
+    msg_info "Hoppar över VA-driver (iGPU ej tillgänglig på hosten)."
+fi
 
 # Docker installation
 pct exec "${IP_FRIGATE}" -- bash -c "install -m 0755 -d /etc/apt/keyrings"
@@ -131,8 +161,8 @@ services:
     restart: unless-stopped
     image: ghcr.io/blakeblackshear/frigate:${FRIGATE_TAG}
     shm_size: "128mb"
-    devices:
-      - /dev/dri/renderD128:/dev/dri/renderD128
+$(if [ "$IGPU_OK" == "true" ]; then echo '    devices:
+      - /dev/dri/renderD128:/dev/dri/renderD128'; fi)
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - ./config:/config
@@ -153,6 +183,7 @@ EOF
 pct push "${IP_FRIGATE}" /tmp/frigate-compose.yml /opt/frigate/docker-compose.yml
 rm -f /tmp/frigate-compose.yml
 
+if [ "$IGPU_OK" == "true" ]; then
 cat > /tmp/frigate-config.yml << 'EOF'
 mqtt:
   enabled: False
@@ -173,6 +204,24 @@ model:
 
 ffmpeg:
   hwaccel_args: preset-vaapi
+EOF
+else
+cat > /tmp/frigate-config.yml << 'EOF'
+mqtt:
+  enabled: False
+
+detectors:
+  cpu_0:
+    type: cpu
+    num_threads: 4
+
+ffmpeg:
+  hwaccel_args: []
+EOF
+msg_warn "Frigate körs med CPU-detektion (långsamt). Aktivera iGPU och kör scriptet igen."
+fi
+
+cat >> /tmp/frigate-config.yml << 'EOF'
 
 record:
   enabled: true
