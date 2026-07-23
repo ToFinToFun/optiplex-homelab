@@ -1009,6 +1009,33 @@ for r in releases:
         "
     fi
     
+    # Disk-resize: erbjud att utöka om disken är liten
+    CURRENT_DISK_GB=$(pct config "${FRIGATE_CT}" 2>/dev/null | grep -oP 'rootfs:.*size=\K[0-9]+')
+    CURRENT_DISK_GB=${CURRENT_DISK_GB:-0}
+    if [ "$CURRENT_DISK_GB" -lt 32 ] 2>/dev/null; then
+        msg_warn "Frigate-disken är bara ${CURRENT_DISK_GB}GB (rekommenderat: 64GB)."
+        if [ "${HEADLESS:-false}" == "true" ]; then
+            msg_info "Utökar disk till 64GB..."
+            pct resize "${FRIGATE_CT}" rootfs 64G 2>&1 | tail -2
+            msg_ok "Disk utökad till 64GB."
+        else
+            if ask_yes_no "Vill du utöka disken? (kan göras live utan dataforlust)" "Y"; then
+                NEW_SIZE=$(ask_string "Ny storlek i GB" "64")
+                if [ "$NEW_SIZE" -gt "$CURRENT_DISK_GB" ] 2>/dev/null; then
+                    msg_info "Utökar disk från ${CURRENT_DISK_GB}GB till ${NEW_SIZE}GB..."
+                    if pct resize "${FRIGATE_CT}" rootfs ${NEW_SIZE}G 2>&1; then
+                        msg_ok "Disk utökad till ${NEW_SIZE}GB!"
+                        pct exec "${FRIGATE_CT}" -- bash -c "resize2fs /dev/mapper/rootfs 2>/dev/null || true"
+                    else
+                        msg_warn "Kunde inte utöka disken. Kontrollera att det finns ledigt utrymme i storage-poolen."
+                    fi
+                else
+                    msg_warn "Ny storlek måste vara större än nuvarande (${CURRENT_DISK_GB}GB). Hoppar över."
+                fi
+            fi
+        fi
+    fi
+
     # Verifiering: vänta på att Frigate svarar
     msg_info "Väntar på att Frigate startar..."
     FRIGATE_UP=false
