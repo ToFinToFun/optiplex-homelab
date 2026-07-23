@@ -313,9 +313,9 @@ XEOF"
 fi
 
 # ─── Auto-konfigurera Guacamole med Desktop-anslutning ────────
-if [ "$INSTALL_GUAC" == "y" ] && [ "$INSTALL_DESKTOP" == "y" ]; then
+if [ "$INSTALL_GUAC" == "y" ]; then
     echo "" > /dev/tty
-    msg_info "Konfigurerar Guacamole med Desktop-anslutning..."
+    msg_info "Konfigurerar Guacamole-anslutningar..."
     
     # Vänta tills Guacamole API svarar
     sleep 5
@@ -326,43 +326,87 @@ if [ "$INSTALL_GUAC" == "y" ] && [ "$INSTALL_DESKTOP" == "y" ]; then
         -d 'username=${GUAC_ADMIN_USER}&password=${GUAC_ADMIN_PASS}' 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get(\"authToken\",\"\"))' 2>/dev/null")
     
     if [ -n "$GUAC_TOKEN" ]; then
-        # Skapa RDP-anslutning till Desktop med clipboard + filöverföring
+        # ── Desktop-anslutningar (RDP + SSH) ──
+        if [ "$INSTALL_DESKTOP" == "y" ]; then
+            # RDP till Desktop med clipboard + filöverföring
+            pct exec "${IP_GUACAMOLE}" -- bash -c "curl -sf 'http://localhost:8080/api/session/data/postgresql/connections?token=${GUAC_TOKEN}' \
+                -H 'Content-Type: application/json' \
+                -d '{
+                    \"name\": \"Linux Desktop (RDP)\",
+                    \"protocol\": \"rdp\",
+                    \"parentIdentifier\": \"ROOT\",
+                    \"parameters\": {
+                        \"hostname\": \"${DESKTOP_IP}\",
+                        \"port\": \"3389\",
+                        \"username\": \"${DESKTOP_USER}\",
+                        \"password\": \"${DESKTOP_PASS}\",
+                        \"security\": \"any\",
+                        \"ignore-cert\": \"true\",
+                        \"resize-method\": \"display-update\",
+                        \"enable-drive\": \"true\",
+                        \"drive-name\": \"Shared\",
+                        \"drive-path\": \"/shared\",
+                        \"create-drive-path\": \"true\",
+                        \"disable-copy\": \"false\",
+                        \"disable-paste\": \"false\",
+                        \"enable-wallpaper\": \"false\",
+                        \"enable-font-smoothing\": \"true\",
+                        \"color-depth\": \"32\"
+                    },
+                    \"attributes\": {
+                        \"max-connections\": \"2\",
+                        \"max-connections-per-user\": \"2\"
+                    }
+                }' > /dev/null 2>&1"
+            msg_ok "RDP-anslutning 'Linux Desktop (RDP)' skapad"
+            echo -e "  ${DIM}Clipboard: aktiverat | Filöverföring: aktiverat (drive 'Shared')${NC}" > /dev/tty
+            
+            # SSH till Desktop
+            pct exec "${IP_GUACAMOLE}" -- bash -c "curl -sf 'http://localhost:8080/api/session/data/postgresql/connections?token=${GUAC_TOKEN}' \
+                -H 'Content-Type: application/json' \
+                -d '{
+                    \"name\": \"Linux Desktop (SSH)\",
+                    \"protocol\": \"ssh\",
+                    \"parentIdentifier\": \"ROOT\",
+                    \"parameters\": {
+                        \"hostname\": \"${DESKTOP_IP}\",
+                        \"port\": \"22\",
+                        \"username\": \"${DESKTOP_USER}\",
+                        \"password\": \"${DESKTOP_PASS}\",
+                        \"color-scheme\": \"green-black\",
+                        \"font-size\": \"14\",
+                        \"enable-sftp\": \"true\",
+                        \"sftp-root-directory\": \"/home/${DESKTOP_USER}\"
+                    },
+                    \"attributes\": {}
+                }' > /dev/null 2>&1"
+            msg_ok "SSH-anslutning 'Linux Desktop (SSH)' skapad"
+        fi
+        
+        # ── SSH till Proxmox-noden (alltid) ──
+        NODE_IP=$(hostname -I | awk '{print \$1}')
         pct exec "${IP_GUACAMOLE}" -- bash -c "curl -sf 'http://localhost:8080/api/session/data/postgresql/connections?token=${GUAC_TOKEN}' \
             -H 'Content-Type: application/json' \
             -d '{
-                \"name\": \"Linux Desktop\",
-                \"protocol\": \"rdp\",
+                \"name\": \"Proxmox (${NODE_HOSTNAME:-$(hostname)})\",
+                \"protocol\": \"ssh\",
                 \"parentIdentifier\": \"ROOT\",
                 \"parameters\": {
-                    \"hostname\": \"${DESKTOP_IP}\",
-                    \"port\": \"3389\",
-                    \"username\": \"${DESKTOP_USER}\",
-                    \"password\": \"${DESKTOP_PASS}\",
-                    \"security\": \"any\",
-                    \"ignore-cert\": \"true\",
-                    \"resize-method\": \"display-update\",
-                    \"enable-drive\": \"true\",
-                    \"drive-name\": \"Shared\",
-                    \"drive-path\": \"/shared\",
-                    \"create-drive-path\": \"true\",
-                    \"disable-copy\": \"false\",
-                    \"disable-paste\": \"false\",
-                    \"enable-wallpaper\": \"false\",
-                    \"enable-font-smoothing\": \"true\",
-                    \"color-depth\": \"32\"
+                    \"hostname\": \"${NODE_IP}\",
+                    \"port\": \"22\",
+                    \"username\": \"root\",
+                    \"color-scheme\": \"green-black\",
+                    \"font-size\": \"14\",
+                    \"enable-sftp\": \"true\",
+                    \"sftp-root-directory\": \"/root\"
                 },
-                \"attributes\": {
-                    \"max-connections\": \"2\",
-                    \"max-connections-per-user\": \"2\"
-                }
+                \"attributes\": {}
             }' > /dev/null 2>&1"
-        
-        msg_ok "RDP-anslutning 'Linux Desktop' skapad i Guacamole!"
-        echo -e "  ${DIM}Clipboard: aktiverat | Filöverföring: aktiverat (drive 'Shared')${NC}" > /dev/tty
+        msg_ok "SSH-anslutning 'Proxmox (${NODE_HOSTNAME:-$(hostname)})' skapad"
     else
         msg_warn "Kunde inte auto-konfigurera Guacamole (API ej redo)."
-        echo -e "  ${DIM}Du kan lägga till anslutningen manuellt i Guacamole UI:${NC}" > /dev/tty
-        echo -e "  ${DIM}  Hostname: ${DESKTOP_IP}, Port: 3389, User: ${DESKTOP_USER}${NC}" > /dev/tty
+        echo -e "  ${DIM}Lägg till anslutningar manuellt i Guacamole UI:${NC}" > /dev/tty
+        echo -e "  ${DIM}  Settings → Connections → New Connection${NC}" > /dev/tty
     fi
 fi
 
