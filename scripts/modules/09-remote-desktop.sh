@@ -326,7 +326,7 @@ if [ "$INSTALL_GUAC" == "y" ] && [ "$INSTALL_DESKTOP" == "y" ]; then
         -d 'username=${GUAC_ADMIN_USER}&password=${GUAC_ADMIN_PASS}' 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get(\"authToken\",\"\"))' 2>/dev/null")
     
     if [ -n "$GUAC_TOKEN" ]; then
-        # Skapa RDP-anslutning till Desktop
+        # Skapa RDP-anslutning till Desktop med clipboard + filöverföring
         pct exec "${IP_GUACAMOLE}" -- bash -c "curl -sf 'http://localhost:8080/api/session/data/postgresql/connections?token=${GUAC_TOKEN}' \
             -H 'Content-Type: application/json' \
             -d '{
@@ -340,12 +340,25 @@ if [ "$INSTALL_GUAC" == "y" ] && [ "$INSTALL_DESKTOP" == "y" ]; then
                     \"password\": \"${DESKTOP_PASS}\",
                     \"security\": \"any\",
                     \"ignore-cert\": \"true\",
-                    \"resize-method\": \"display-update\"
+                    \"resize-method\": \"display-update\",
+                    \"enable-drive\": \"true\",
+                    \"drive-name\": \"Shared\",
+                    \"drive-path\": \"/shared\",
+                    \"create-drive-path\": \"true\",
+                    \"disable-copy\": \"false\",
+                    \"disable-paste\": \"false\",
+                    \"enable-wallpaper\": \"false\",
+                    \"enable-font-smoothing\": \"true\",
+                    \"color-depth\": \"32\"
                 },
-                \"attributes\": {}
+                \"attributes\": {
+                    \"max-connections\": \"2\",
+                    \"max-connections-per-user\": \"2\"
+                }
             }' > /dev/null 2>&1"
         
         msg_ok "RDP-anslutning 'Linux Desktop' skapad i Guacamole!"
+        echo -e "  ${DIM}Clipboard: aktiverat | Filöverföring: aktiverat (drive 'Shared')${NC}" > /dev/tty
     else
         msg_warn "Kunde inte auto-konfigurera Guacamole (API ej redo)."
         echo -e "  ${DIM}Du kan lägga till anslutningen manuellt i Guacamole UI:${NC}" > /dev/tty
@@ -365,6 +378,20 @@ if [ "$INSTALL_GUAC" == "y" ]; then
     echo -e "    Lokal URL:    http://${GUAC_IP}:8080" > /dev/tty
     echo -e "    Användare:    ${GUAC_ADMIN_USER}" > /dev/tty
     echo -e "    Lösenord:     (det du angav)" > /dev/tty
+    echo "" > /dev/tty
+    echo -e "  ${BOLD}Funktioner som är aktiverade:${NC}" > /dev/tty
+    echo -e "    ✓ Clipboard (kopiera/klistra mellan lokal dator och remote)" > /dev/tty
+    echo -e "    ✓ Filöverföring (ladda upp/ner via drive 'Shared')" > /dev/tty
+    echo -e "    ✓ PostgreSQL-autentisering (hantera användare via GUI)" > /dev/tty
+    echo -e "    ✓ Dynamisk upplösning (anpassar sig till webbläsarfönstret)" > /dev/tty
+    echo "" > /dev/tty
+    echo -e "  ${BOLD}Lägga till fler anslutningar:${NC}" > /dev/tty
+    echo -e "    1. Logga in på Guacamole (http://${GUAC_IP}:8080)" > /dev/tty
+    echo -e "    2. Klicka ditt användarnamn (övre högra hörnet) → Settings" > /dev/tty
+    echo -e "    3. Connections → New Connection" > /dev/tty
+    echo -e "    4. Välj protokoll (RDP/VNC/SSH), ange IP + credentials" > /dev/tty
+    echo -e "    5. Under Parameters → aktivera 'Enable drive' för filöverföring" > /dev/tty
+    echo -e "    ${DIM}Du kan ansluta till vilken maskin som helst på nätverket!${NC}" > /dev/tty
     echo "" > /dev/tty
 fi
 
