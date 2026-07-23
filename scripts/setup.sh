@@ -3,8 +3,15 @@
 # OptiPlex Homelab - Huvudinstallationsskript (Wizard)
 # ============================================================
 # Användning:
-#   bash setup.sh              — Normal installation
+#   bash setup.sh              — Normal installation (interaktiv wizard)
+#   bash setup.sh --headless   — Installera allt utan frågor ("gå iväg-knappen")
 #   bash setup.sh --dry-run    — Visa vad som SKULLE hända (ingen ändring)
+#
+# Headless-mode:
+#   Installerar ALL infrastruktur med defaults från setup.env.
+#   Kräver att setup.env redan finns (kör wizarden interaktivt först).
+#   Hoppar över: kameror, Cloudflare DNS, NPM-regler (kräver manuell input).
+#   Kör om med 'bash setup.sh' för att konfigurera dessa efterhand.
 # ============================================================
 
 # Byt till skriptets katalog
@@ -12,11 +19,16 @@ cd "$(dirname "$0")"
 
 # Flaggor
 DRY_RUN=false
+HEADLESS=false
 for arg in "$@"; do
     case "$arg" in
         --dry-run)
             DRY_RUN=true
             export DRY_RUN
+            ;;
+        --headless)
+            HEADLESS=true
+            export HEADLESS
             ;;
     esac
 done
@@ -67,8 +79,13 @@ cleanup_on_exit() {
                 echo -e "    ${YELLOW}${type} ${id} (${name})${NC}"
             done
             echo ""
-            echo -ne "  ${BOLD}Vill du ta bort dem? [y/N]: ${NC}"
-            read -t 10 answer < /dev/tty 2>/dev/null || answer="n"
+            if [ "$HEADLESS" == "true" ]; then
+                # Headless: behåll resurser (säkrare än att radera)
+                answer="n"
+            else
+                echo -ne "  ${BOLD}Vill du ta bort dem? [y/N]: ${NC}"
+                read -t 10 answer < /dev/tty 2>/dev/null || answer="n"
+            fi
             if [[ "$answer" =~ ^[Yy]$ ]]; then
                 while [ -s "/tmp/.optiplex_rollback_stack" ]; do
                     rollback_last
@@ -108,6 +125,24 @@ if [ "$DRY_RUN" == "true" ]; then
     echo -e "${NC}\n"
 fi
 
+if [ "$HEADLESS" == "true" ]; then
+    echo -e "${GREEN}${BOLD}"
+    echo "  ╔═══════════════════════════════════════════════════════╗"
+    echo "  ║     HEADLESS MODE — Installerar allt automatiskt     ║"
+    echo "  ║   Inga frågor ställs — defaults från setup.env används  ║"
+    echo "  ║   Kör 'bash setup.sh' igen för kameror/DNS/NPM-regler ║"
+    echo "  ╚═══════════════════════════════════════════════════════╝"
+    echo -e "${NC}\n"
+    
+    # Headless kräver att setup.env redan finns (lösenord måste vara satt)
+    if [ ! -f setup.env ]; then
+        msg_err "Headless-mode kräver att setup.env redan finns!"
+        msg_info "Kör först: bash setup.sh (interaktivt) för att sätta lösenord och nätverk."
+        msg_info "Sen kan du köra: bash setup.sh --headless"
+        exit 1
+    fi
+fi
+
 msg_header "OptiPlex Homelab Installer"
 
 if [ "$EUID" -ne 0 ]; then
@@ -145,7 +180,9 @@ if [ $BIOS_ISSUES -gt 0 ] && [ "$(get_state host_configured)" != "true" ]; then
             if [ "$(get_state needs_reboot)" == "true" ]; then
                 echo "" > /dev/tty
                 msg_warn "BIOS-ändringar kräver omstart för att träda i kraft."
-                if ask_yes_no "Vill du starta om nu? (Kör setup.sh igen efter omstart)" "Y"; then
+                if [ "$HEADLESS" == "true" ]; then
+                    msg_info "(headless) Reboot skjuts upp — fortsätter installationen."
+                elif ask_yes_no "Vill du starta om nu? (Kör setup.sh igen efter omstart)" "Y"; then
                     msg_info "Startar om om 5 sekunder..."
                     msg_info "Efter omstart, kör: cd /opt/optiplex-homelab/scripts && bash setup.sh"
                     sleep 5
@@ -382,7 +419,22 @@ DONE_COUNT=0
 [ "$STATUS_RDP" != "saknas" ] && DONE_COUNT=$((DONE_COUNT + 1))
 
 # Om ALLT saknas — första körningen, kör allt utan meny
-if [ $DONE_COUNT -eq 0 ]; then
+if [ "$HEADLESS" == "true" ]; then
+    # Headless: kör allt som saknas, inklusive RDP, men hoppa över interaktiva moduler
+    msg_info "Headless-mode: installerar all infrastruktur som saknas."
+    [ "$STATUS_HOST" != "saknas" ] && DO_HOST="n"
+    [ "$STATUS_HA" != "saknas" ] && DO_HA="n"
+    [ "$STATUS_CF" != "saknas" ] && DO_CF="n"
+    [ "$STATUS_NPM" != "saknas" ] && DO_NPM="n"
+    [ "$STATUS_FRIGATE" != "saknas" ] && DO_FRIGATE="n"
+    [ "$STATUS_RDP" != "saknas" ] && DO_RDP="n" || DO_RDP="y"
+    # Dessa kräver för mycket manuell input — hoppa över i headless
+    DO_CAMERAS="n"
+    DO_CF_DNS="n"
+    DO_NPM_CONF="n"
+    msg_info "Hoppar över: Kameror, Cloudflare DNS, NPM-regler (kräver manuell input)."
+    msg_info "Kör 'bash setup.sh' interaktivt efterhand för att konfigurera dessa."
+elif [ $DONE_COUNT -eq 0 ]; then
     msg_info "Första installationen — alla steg körs."
 else
     # Re-run: Visa meny
@@ -590,7 +642,11 @@ if [ "$DO_HA" == "y" ]; then
         if ! bash modules/02-ha-vm.sh; then
             msg_err "Ett fel uppstod under installationen av Home Assistant."
             rollback_offer "$IP_HA" "Home Assistant"
-            if ! ask_yes_no "Vill du fortsätta med nästa steg ändå?" "N"; then exit 1; fi
+            if [ "$HEADLESS" == "true" ]; then
+                msg_warn "(headless) Felet loggas, fortsätter med nästa steg..."
+            elif ! ask_yes_no "Vill du fortsätta med nästa steg ändå?" "N"; then
+                exit 1
+            fi
         else
             rollback_clear  # Lyckades — inget att ångra
             wait_for_service "${NETWORK_PREFIX}.${IP_HA}" 8123 "Home Assistant" 180
@@ -610,7 +666,11 @@ if [ "$DO_CF" == "y" ]; then
         if ! bash modules/03-cloudflared.sh "$TEMPLATE_PATH"; then
             msg_err "Ett fel uppstod under installationen av Cloudflared."
             rollback_offer "$IP_CLOUDFLARED" "Cloudflared"
-            if ! ask_yes_no "Vill du fortsätta med nästa steg ändå?" "N"; then exit 1; fi
+            if [ "$HEADLESS" == "true" ]; then
+                msg_warn "(headless) Felet loggas, fortsätter med nästa steg..."
+            elif ! ask_yes_no "Vill du fortsätta med nästa steg ändå?" "N"; then
+                exit 1
+            fi
         else
             rollback_clear
         fi
@@ -630,7 +690,11 @@ Ingen 'Force SSL' ska aktiveras i NPM (orsakar redirect-loop)."
         if ! bash modules/04-npm.sh "$TEMPLATE_PATH"; then
             msg_err "Ett fel uppstod under installationen av NPM."
             rollback_offer "$IP_NPM" "NPM"
-            if ! ask_yes_no "Vill du fortsätta med nästa steg ändå?" "N"; then exit 1; fi
+            if [ "$HEADLESS" == "true" ]; then
+                msg_warn "(headless) Felet loggas, fortsätter med nästa steg..."
+            elif ! ask_yes_no "Vill du fortsätta med nästa steg ändå?" "N"; then
+                exit 1
+            fi
         else
             rollback_clear
             wait_for_service "${NETWORK_PREFIX}.${IP_NPM}" 81 "NPM" 60
@@ -702,7 +766,11 @@ if [ "$DO_FRIGATE" == "y" ]; then
             if ! bash modules/05-frigate.sh "$TEMPLATE_PATH"; then
                 msg_err "Ett fel uppstod under installationen av Frigate."
                 rollback_offer "$IP_FRIGATE" "Frigate"
-                if ! ask_yes_no "Vill du fortsätta med nästa steg ändå?" "N"; then exit 1; fi
+                if [ "$HEADLESS" == "true" ]; then
+                    msg_warn "(headless) Felet loggas, fortsätter med nästa steg..."
+                elif ! ask_yes_no "Vill du fortsätta med nästa steg ändå?" "N"; then
+                    exit 1
+                fi
             else
                 rollback_clear
                 wait_for_service "${NETWORK_PREFIX}.${IP_FRIGATE}" 5000 "Frigate" 90
@@ -934,6 +1002,7 @@ echo -e "    Systemstatus:  ${YELLOW}cd /opt/optiplex-homelab/scripts && bash to
 echo -e "    Uppdatera:     ${YELLOW}cd /opt/optiplex-homelab/scripts && bash tools/update.sh${NC}"
 echo -e "    USB-backup:    ${YELLOW}cd /opt/optiplex-homelab/scripts && bash tools/usb-backup.sh${NC}"
 echo -e "    Kör om wizard:  ${YELLOW}cd /opt/optiplex-homelab/scripts && bash setup.sh${NC}"
+echo -e "    Headless:      ${YELLOW}cd /opt/optiplex-homelab/scripts && bash setup.sh --headless${NC}"
 echo -e "    Dry-run:       ${YELLOW}cd /opt/optiplex-homelab/scripts && bash setup.sh --dry-run${NC}"
 
 # ==========================================

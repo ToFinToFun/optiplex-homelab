@@ -379,7 +379,11 @@ POSTINST
         echo "" > /dev/tty
         echo -e "  ${GREEN}BIOS-inställningarna är sparade men kräver en omstart.${NC}" > /dev/tty
         echo "" > /dev/tty
-        if ask_yes_no "Vill du starta om nu? (Kör setup.sh igen efter omstart)" "Y"; then
+        if [ "$HEADLESS" == "true" ]; then
+            # Headless: aldrig reboot mitt i installationen
+            set_state needs_reboot true
+            msg_info "(headless) Reboot krävs men skjuts upp tills installationen är klar."
+        elif ask_yes_no "Vill du starta om nu? (Kör setup.sh igen efter omstart)" "Y"; then
             msg_info "Startar om om 5 sekunder..."
             msg_info "Efter omstart, kör: cd /opt/optiplex-homelab/scripts && bash setup.sh"
             sleep 5

@@ -36,6 +36,10 @@ SERVICE_USER="${SERVICE_USER:-frigate}"
 
 # NPM admin-email
 NPM_ADMIN_EMAIL="${NPM_ADMIN_EMAIL:-admin@example.com}"
+
+# Remote Desktop (Guacamole + Desktop)
+IP_GUACAMOLE="${IP_GUACAMOLE:-107}"
+IP_DESKTOP="${IP_DESKTOP:-108}"
 EOF
 }
 

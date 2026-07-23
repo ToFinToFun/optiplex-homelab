@@ -23,6 +23,10 @@ export ICON_DRY="[${DIM}DRY${NC}]"
 # Dry-run mode (sätts via --dry-run flagga i setup.sh)
 export DRY_RUN="${DRY_RUN:-false}"
 
+# Headless mode (sätts via --headless flagga i setup.sh)
+# I headless-mode besvaras alla frågor med default-värdet automatiskt.
+export HEADLESS="${HEADLESS:-false}"
+
 # Funktioner
 msg_info() { echo -e "${ICON_INFO} $1"; }
 msg_ok() { echo -e "${ICON_OK} $1"; }
@@ -113,6 +117,17 @@ ask_yes_no() {
     local default="$2"
     local answer
     
+    # Headless mode: returnera default utan att fråga
+    if [ "$HEADLESS" == "true" ]; then
+        if [ "$default" = "Y" ]; then
+            msg_info "(headless) $1 → Ja (default)"
+            return 0
+        else
+            msg_info "(headless) $1 → Nej (default)"
+            return 1
+        fi
+    fi
+    
     if [ "$default" = "Y" ]; then
         prompt="$prompt [Y/n]: "
     else
@@ -139,6 +154,18 @@ ask_string() {
     local default="$2"
     local is_secret="$3"
     local answer
+    
+    # Headless mode: returnera default utan att fråga
+    if [ "$HEADLESS" == "true" ]; then
+        if [ -n "$default" ]; then
+            msg_info "(headless) $1 → $default"
+            echo "$default"
+        else
+            # Inget default — returnera tomt (anroparen måste hantera)
+            echo ""
+        fi
+        return
+    fi
     
     if [ -n "$default" ]; then
         prompt="$prompt [${default}]: "

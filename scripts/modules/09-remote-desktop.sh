@@ -15,39 +15,46 @@ TEMPLATE_PATH=$1
 CIDR="${NETWORK_CIDR:-24}"
 
 # ─── Undermeny ───────────────────────────────────────────────
-echo "" > /dev/tty
-echo -e "  ${CYAN}╔══════════════════════════════════════════════════════════╗${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC} ${BOLD}Remote Desktop — Vad vill du installera?${NC}                ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}╠══════════════════════════════════════════════════════════╣${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC}                                                          ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC}  ${BOLD}1)${NC} Guacamole — RDP-proxy via webbläsaren               ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC}     ${DIM}Anslut till alla maskiner via rdp.dindomän.se${NC}        ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC}                                                          ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC}  ${BOLD}2)${NC} Linux Desktop — Lättvikts-skrivbord med RDP          ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC}     ${DIM}Debian 13 + XFCE4 + xrdp (anslut via Guacamole)${NC}     ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC}                                                          ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC}  ${BOLD}3)${NC} Båda (rekommenderat)                                 ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC}                                                          ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC}  ${BOLD}0)${NC} Tillbaka (hoppa över Remote Desktop)                 ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC}                                                          ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}╚══════════════════════════════════════════════════════════╝${NC}" > /dev/tty
-echo "" > /dev/tty
-echo -ne "  ${BOLD}Välj [0/1/2/3]: ${NC}" > /dev/tty
-read RDP_CHOICE < /dev/tty
-
 INSTALL_GUAC="n"
 INSTALL_DESKTOP="n"
 
-case "$RDP_CHOICE" in
-    0)
-        msg_info "Hoppar över Remote Desktop."
-        exit 0
-        ;;
-    1) INSTALL_GUAC="y" ;;
-    2) INSTALL_DESKTOP="y" ;;
-    3|"") INSTALL_GUAC="y"; INSTALL_DESKTOP="y" ;;
-    *) INSTALL_GUAC="y"; INSTALL_DESKTOP="y" ;;
-esac
+if [ "$HEADLESS" == "true" ]; then
+    # Headless: installera båda med defaults
+    msg_info "(headless) Installerar båda: Guacamole + Linux Desktop"
+    INSTALL_GUAC="y"
+    INSTALL_DESKTOP="y"
+else
+    echo "" > /dev/tty
+    echo -e "  ${CYAN}╔══════════════════════════════════════════════════════════╗${NC}" > /dev/tty
+    echo -e "  ${CYAN}║${NC} ${BOLD}Remote Desktop — Vad vill du installera?${NC}                ${CYAN}║${NC}" > /dev/tty
+    echo -e "  ${CYAN}╠══════════════════════════════════════════════════════════╣${NC}" > /dev/tty
+    echo -e "  ${CYAN}║${NC}                                                          ${CYAN}║${NC}" > /dev/tty
+    echo -e "  ${CYAN}║${NC}  ${BOLD}1)${NC} Guacamole — RDP-proxy via webbläsaren               ${CYAN}║${NC}" > /dev/tty
+    echo -e "  ${CYAN}║${NC}     ${DIM}Anslut till alla maskiner via rdp.dindomän.se${NC}        ${CYAN}║${NC}" > /dev/tty
+    echo -e "  ${CYAN}║${NC}                                                          ${CYAN}║${NC}" > /dev/tty
+    echo -e "  ${CYAN}║${NC}  ${BOLD}2)${NC} Linux Desktop — Lättvikts-skrivbord med RDP          ${CYAN}║${NC}" > /dev/tty
+    echo -e "  ${CYAN}║${NC}     ${DIM}Debian 13 + XFCE4 + xrdp (anslut via Guacamole)${NC}     ${CYAN}║${NC}" > /dev/tty
+    echo -e "  ${CYAN}║${NC}                                                          ${CYAN}║${NC}" > /dev/tty
+    echo -e "  ${CYAN}║${NC}  ${BOLD}3)${NC} Båda (rekommenderat)                                 ${CYAN}║${NC}" > /dev/tty
+    echo -e "  ${CYAN}║${NC}                                                          ${CYAN}║${NC}" > /dev/tty
+    echo -e "  ${CYAN}║${NC}  ${BOLD}0)${NC} Tillbaka (hoppa över Remote Desktop)                 ${CYAN}║${NC}" > /dev/tty
+    echo -e "  ${CYAN}║${NC}                                                          ${CYAN}║${NC}" > /dev/tty
+    echo -e "  ${CYAN}╚══════════════════════════════════════════════════════════╝${NC}" > /dev/tty
+    echo "" > /dev/tty
+    echo -ne "  ${BOLD}Välj [0/1/2/3]: ${NC}" > /dev/tty
+    read RDP_CHOICE < /dev/tty
+
+    case "$RDP_CHOICE" in
+        0)
+            msg_info "Hoppar över Remote Desktop."
+            exit 0
+            ;;
+        1) INSTALL_GUAC="y" ;;
+        2) INSTALL_DESKTOP="y" ;;
+        3|"") INSTALL_GUAC="y"; INSTALL_DESKTOP="y" ;;
+        *) INSTALL_GUAC="y"; INSTALL_DESKTOP="y" ;;
+    esac
+fi
 
 # ─── Konfiguration ───────────────────────────────────────────
 echo "" > /dev/tty
@@ -60,12 +67,19 @@ if [ "$INSTALL_GUAC" == "y" ]; then
     IP_GUACAMOLE=$(ask_string "CT ID för Guacamole (även sista delen av IP)" "$local_default_guac_id")
     GUAC_IP="${NETWORK_PREFIX}.${IP_GUACAMOLE}"
     
-    echo -e "  ${DIM}Guacamole admin-konto (för inloggning i webbgränssnittet)${NC}" > /dev/tty
-    GUAC_ADMIN_USER=$(ask_string "Guacamole admin-användarnamn" "admin")
-    GUAC_ADMIN_PASS=""
-    while [ -z "$GUAC_ADMIN_PASS" ]; do
-        GUAC_ADMIN_PASS=$(ask_string "Guacamole admin-lösenord" "" "true")
-    done
+    if [ "$HEADLESS" == "true" ]; then
+        # Headless: använd gemensamt lösenord från setup.env
+        GUAC_ADMIN_USER="admin"
+        GUAC_ADMIN_PASS="${SHARED_PASSWORD:-$CT_PASSWORD}"
+        msg_info "(headless) Guacamole admin: ${GUAC_ADMIN_USER} / (gemensamt lösenord)"
+    else
+        echo -e "  ${DIM}Guacamole admin-konto (för inloggning i webbgränssnittet)${NC}" > /dev/tty
+        GUAC_ADMIN_USER=$(ask_string "Guacamole admin-användarnamn" "admin")
+        GUAC_ADMIN_PASS=""
+        while [ -z "$GUAC_ADMIN_PASS" ]; do
+            GUAC_ADMIN_PASS=$(ask_string "Guacamole admin-lösenord" "" "true")
+        done
+    fi
 fi
 
 if [ "$INSTALL_DESKTOP" == "y" ]; then
@@ -76,18 +90,26 @@ if [ "$INSTALL_DESKTOP" == "y" ]; then
     IP_DESKTOP=$(ask_string "CT ID för Desktop (även sista delen av IP)" "$local_default_desk_id")
     DESKTOP_IP="${NETWORK_PREFIX}.${IP_DESKTOP}"
     
-    echo -e "  ${DIM}Desktop-användare (för RDP-inloggning)${NC}" > /dev/tty
-    DESKTOP_USER=$(ask_string "Desktop-användarnamn" "user")
-    DESKTOP_PASS=""
-    while [ -z "$DESKTOP_PASS" ]; do
-        DESKTOP_PASS=$(ask_string "Desktop-lösenord" "" "true")
-    done
-    
-    DESKTOP_DISK=$(ask_string "Diskstorlek för Desktop (GB, minimum 16)" "32")
-    # Validera minimum
-    if [ "$DESKTOP_DISK" -lt 16 ] 2>/dev/null; then
-        msg_warn "Minimum 16GB krävs. Sätter till 16GB."
-        DESKTOP_DISK=16
+    if [ "$HEADLESS" == "true" ]; then
+        # Headless: använd gemensamt lösenord från setup.env
+        DESKTOP_USER="user"
+        DESKTOP_PASS="${SHARED_PASSWORD:-$CT_PASSWORD}"
+        DESKTOP_DISK="32"
+        msg_info "(headless) Desktop: ${DESKTOP_USER} / (gemensamt lösenord) / ${DESKTOP_DISK}GB"
+    else
+        echo -e "  ${DIM}Desktop-användare (för RDP-inloggning)${NC}" > /dev/tty
+        DESKTOP_USER=$(ask_string "Desktop-användarnamn" "user")
+        DESKTOP_PASS=""
+        while [ -z "$DESKTOP_PASS" ]; do
+            DESKTOP_PASS=$(ask_string "Desktop-lösenord" "" "true")
+        done
+        
+        DESKTOP_DISK=$(ask_string "Diskstorlek för Desktop (GB, minimum 16)" "32")
+        # Validera minimum
+        if [ "$DESKTOP_DISK" -lt 16 ] 2>/dev/null; then
+            msg_warn "Minimum 16GB krävs. Sätter till 16GB."
+            DESKTOP_DISK=16
+        fi
     fi
 fi
 
