@@ -209,6 +209,18 @@ fi
 # ============================================================
 msg_header "Jämförelse mot setup.env"
 
+# Mappning: tjänstnamn → setup.env variabelnamn
+declare -A SVC_TO_VAR
+SVC_TO_VAR[ha]="IP_HA"
+SVC_TO_VAR[cloudflared]="IP_CLOUDFLARED"
+SVC_TO_VAR[npm]="IP_NPM"
+SVC_TO_VAR[frigate]="IP_FRIGATE"
+SVC_TO_VAR[guacamole]="IP_GUACAMOLE"
+SVC_TO_VAR[desktop]="IP_DESKTOP"
+
+# Samla config-uppdateringar
+declare -A CONFIG_UPDATES
+
 check_config_match() {
     local svc="$1"
     local config_suffix="$2"
@@ -221,6 +233,13 @@ check_config_match() {
         msg_warn "${SERVICE_NAMES[$svc]}: Faktisk IP (${actual}) ≠ Konfigurerad (${expected})"
         msg_info "  setup.env säger ${expected}, men containern har ${actual}"
         ISSUES=$((ISSUES + 1))
+        
+        # Extrahera sista oktetten från faktisk IP
+        local actual_suffix
+        actual_suffix=$(echo "$actual" | awk -F. '{print $4}')
+        if [ -n "$actual_suffix" ] && [ "$actual_suffix" != "$config_suffix" ]; then
+            CONFIG_UPDATES[$svc]="$actual_suffix"
+        fi
     else
         msg_ok "${SERVICE_NAMES[$svc]}: Matchar setup.env (${actual})"
     fi
@@ -232,6 +251,42 @@ check_config_match "npm" "${IP_NPM:-102}"
 check_config_match "frigate" "${IP_FRIGATE:-103}"
 check_config_match "guacamole" "${IP_GUACAMOLE:-107}"
 check_config_match "desktop" "${IP_DESKTOP:-108}"
+
+# Erbjud att uppdatera setup.env om mismatchar hittades
+if [ ${#CONFIG_UPDATES[@]} -gt 0 ]; then
+    echo ""
+    msg_info "Följande IP-ändringar kan sparas till setup.env:"
+    for svc in "${!CONFIG_UPDATES[@]}"; do
+        local var_name="${SVC_TO_VAR[$svc]}"
+        local new_suffix="${CONFIG_UPDATES[$svc]}"
+        msg_info "  ${var_name}: ${!var_name} → ${new_suffix}"
+    done
+    echo ""
+    
+    local do_update=false
+    if [ "$AUTO_FIX" == "true" ]; then
+        do_update=true
+    else
+        if ask_yes_no "Uppdatera setup.env med faktiska IP:er? (förhindrar att nästa körning \"fixar tillbaka\")" "Y"; then
+            do_update=true
+        fi
+    fi
+    
+    if [ "$do_update" == "true" ]; then
+        for svc in "${!CONFIG_UPDATES[@]}"; do
+            local var_name="${SVC_TO_VAR[$svc]}"
+            local new_suffix="${CONFIG_UPDATES[$svc]}"
+            # Uppdatera i setup.env
+            if grep -q "^${var_name}=" setup.env 2>/dev/null; then
+                sed -i "s/^${var_name}=.*/${var_name}=\"${new_suffix}\"/" setup.env
+                msg_ok "Uppdaterade ${var_name}=${new_suffix} i setup.env"
+                FIXED=$((FIXED + 1))
+            fi
+        done
+        # Ladda om config efter ändring
+        source setup.env
+    fi
+fi
 
 # ============================================================
 # 3. KONTROLLERA NPM PROXY-REGLER

@@ -637,12 +637,13 @@ else
     fi
     tty_echo "  ${CYAN}║${NC}  ${YELLOW}2)${NC} Laga / Uppgradera befintligt                       ${CYAN}║${NC}"
     tty_echo "  ${CYAN}║${NC}  ${BLUE}3)${NC} Konfigurera (kameror, DNS, regler)                 ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}║${NC}  ${GREEN}5)${NC} Reparera / Verifiera (IP + NPM + status)           ${CYAN}║${NC}"
     tty_echo "  ${CYAN}║${NC}  ${MAGENTA}4)${NC} Avancerat (välj enskilda steg)                     ${CYAN}║${NC}"
     tty_echo "  ${CYAN}║${NC}  ${RED}Q)${NC} Avsluta                                             ${CYAN}║${NC}"
     tty_echo "  ${CYAN}║${NC}                                                        ${CYAN}║${NC}"
     tty_echo "  ${CYAN}╚════════════════════════════════════════════════════════╝${NC}"
     tty_echo ""
-    tty_printf "  ${BOLD}Välj [1-4/Q] (default: 1): ${NC}"
+    tty_printf "  ${BOLD}Välj [1-5/Q] (default: 1): ${NC}"
     tty_read TOP_CHOICE
 
     case "${TOP_CHOICE:-1}" in
@@ -761,6 +762,34 @@ else
                     msg_info "Kör valda steg: ${MENU_CHOICE}"
                     ;;
             esac
+            ;;
+        5)
+            # ===== REPARERA / VERIFIERA =====
+            tty_echo ""
+            tty_echo "  ${BOLD}Reparera / Verifiera:${NC}"
+            tty_echo "  Kontrollerar IP-konsistens, NPM-regler och tjänsternas status."
+            tty_echo ""
+            
+            # Kör IP-check (reparerar NPM + uppdaterar setup.env)
+            if [ -f tools/ip-check.sh ]; then
+                bash tools/ip-check.sh
+            else
+                msg_warn "tools/ip-check.sh saknas!"
+            fi
+            
+            tty_echo ""
+            tty_echo "  ${CYAN}────────────────────────────────────────────────────────────${NC}"
+            tty_echo ""
+            
+            # Kör dashboard
+            if [ -f tools/status-dashboard.sh ]; then
+                bash tools/status-dashboard.sh
+            else
+                msg_warn "tools/status-dashboard.sh saknas!"
+            fi
+            
+            # Avsluta efter reparation (installera inget)
+            exit 0
             ;;
         Q|q)
             msg_info "Avslutar."
