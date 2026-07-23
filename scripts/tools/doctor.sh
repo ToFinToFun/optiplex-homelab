@@ -557,8 +557,7 @@ get_installed_version() {
             ;;
         immich)
             if [ -n "$ctid" ] && pct status "$ctid" 2>/dev/null | grep -q running; then
-                pct exec "$ctid" -- docker inspect immich-server 2>/dev/null | grep -oP '"com.docker.compose.version":\s*"\K[^"]+' | head -1
-                # Alternativ: kolla .env
+                # Hämta version från .env (IMMICH_VERSION=v1.x.x)
                 pct exec "$ctid" -- grep 'IMMICH_VERSION' /opt/immich/.env 2>/dev/null | cut -d= -f2 | sed 's/^v//'
             fi
             ;;

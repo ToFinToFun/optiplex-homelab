@@ -191,6 +191,9 @@ AGH_IP=$(get_ct_ip "adguard" "${IP_ADGUARD:-104}")
 FRIG_IP=$(get_ct_ip "frigate" "${IP_FRIGATE:-103}")
 GUAC_IP=$(get_ct_ip "guacamole" "${IP_GUACAMOLE:-107}")
 DESK_IP=$(get_ct_ip "desktop" "${IP_DESKTOP:-108}")
+SAMBA_IP=$(get_ct_ip "samba" "${IP_SAMBA:-}")
+IMMICH_IP=$(get_ct_ip "immich" "${IP_IMMICH:-}")
+NUT_IP=$(get_ct_ip "nut" "${IP_NUT:-}")
 
 # ============================================================
 # STATUSCHECK
@@ -204,6 +207,9 @@ AGH_INT=$(check_internal "$AGH_IP" 53)
 AGH_WEB_INT=$(check_internal "$AGH_IP" 80)
 FRIG_INT=$(check_internal "$FRIG_IP" 5000)
 GUAC_INT=$(check_internal "$GUAC_IP" 8080)
+SAMBA_INT=$(check_internal "$SAMBA_IP" 445)
+IMMICH_INT=$(check_internal "$IMMICH_IP" 2283)
+NUT_INT=$(check_internal "$NUT_IP" 3493)
 
 # Cloudflared-status
 CF_STATUS="down"
@@ -453,6 +459,19 @@ if [ -n "$GUAC_IP" ] || [ -n "${IP_GUACAMOLE}" ]; then
     print_row "Remote Desktop" "$GUAC_INT_URL" "${GUAC_INT:-down}" "$GUAC_EXT_URL" "$GUAC_EXT" "${GUAC_NPM_SHORT:-—}" "${GUAC_NPM_SHORT:-missing}"
 fi
 
+# Tillägg (visas bara om installerade)
+if [ -n "$SAMBA_IP" ]; then
+    print_row "Samba" "//${SAMBA_IP}/share" "${SAMBA_INT:-down}" "— (intern)" "not_configured" "—" "not_configured"
+fi
+if [ -n "$IMMICH_IP" ]; then
+    IMMICH_EXT_URL="${IMMICH_DOMAIN:+https://${IMMICH_DOMAIN}}"
+    [ -z "$IMMICH_EXT_URL" ] && IMMICH_EXT_URL="—"
+    print_row "Immich" "http://${IMMICH_IP}:2283" "${IMMICH_INT:-down}" "$IMMICH_EXT_URL" "not_configured" "—" "not_configured"
+fi
+if [ -n "$NUT_IP" ]; then
+    print_row "NUT (UPS)" "http://${NUT_IP}:3493" "${NUT_INT:-down}" "— (intern)" "not_configured" "—" "not_configured"
+fi
+
 echo -e "  ${BOLD}└──────────────────────┴──────────────────────────────┴───────┴──────────────────────────────────┴───────┴──────────────┴───────┘${NC}"
 
 # ============================================================
@@ -479,6 +498,9 @@ echo -e "    Proxmox:        ${BOLD}https://${PVE_IP}:8006${NC}"
 [ -n "$FRIG_IP" ] && echo -e "    Frigate:        ${BOLD}http://${FRIG_IP}:5000${NC}"
 [ -n "$AGH_IP" ] && echo -e "    AdGuard Home:   ${BOLD}http://${AGH_IP}${NC} (DNS: ${AGH_IP}:53)"
 [ -n "$GUAC_IP" ] && echo -e "    Guacamole:      ${BOLD}http://${GUAC_IP}:8080${NC}"
+[ -n "$SAMBA_IP" ] && echo -e "    Samba:          ${BOLD}//${SAMBA_IP}/share${NC} (SMB port 445)"
+[ -n "$IMMICH_IP" ] && echo -e "    Immich:         ${BOLD}http://${IMMICH_IP}:2283${NC}"
+[ -n "$NUT_IP" ] && echo -e "    NUT:            ${BOLD}http://${NUT_IP}:3493${NC} (UPS-status)"
 
 # Extern åtkomst-info
 if [ -n "$DOMAIN" ]; then

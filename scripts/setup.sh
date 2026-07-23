@@ -710,9 +710,8 @@ else
             tty_echo ""
 
             # Sätt alla till n, aktivera bara upgrade-paths
-            DO_HOST="n"; DO_HA="n"; DO_CF="n"; DO_NPM="n"
+            DO_HOST="n"; DO_HA="n"; DO_CF="n"; DO_ADGUARD="n"; DO_NPM="n"
             DO_CAMERAS="n"; DO_CF_DNS="n"; DO_NPM_CONF="n"; DO_RDP="n"
-
             # Frigate: erbjud upgrade om den finns
             if [ "$STATUS_FRIGATE" != "saknas" ]; then
                 DO_FRIGATE="upgrade"
@@ -732,7 +731,7 @@ else
             tty_echo ""
 
             # Sätt alla till n, aktivera bara config-steg
-            DO_HOST="n"; DO_HA="n"; DO_CF="n"; DO_NPM="n"
+            DO_HOST="n"; DO_HA="n"; DO_CF="n"; DO_ADGUARD="n"; DO_NPM="n"
             DO_FRIGATE="n"; DO_RDP="n"
             DO_CAMERAS="y"; DO_CF_DNS="y"; DO_NPM_CONF="y"
             msg_info "Kör konfigurationssteg (kameror, DNS, NPM-regler)."
@@ -796,15 +795,19 @@ else
             tty_printf "  ${CYAN}║${NC}  8. $(status_icon $STATUS_CFDNS) Cloudflare DNS       %-16s ${CYAN}║${NC}\n" "($STATUS_CFDNS)"
             tty_printf "  ${CYAN}║${NC}  9. $(status_icon $STATUS_NPMCONF) NPM Auto-Config      %-16s ${CYAN}║${NC}\n" "($STATUS_NPMCONF)"
             tty_printf "  ${CYAN}║${NC} 10. $(status_icon $STATUS_RDP) Remote Desktop      %-16s ${CYAN}║${NC}\n" "($STATUS_RDP)"
+            tty_echo "  ${CYAN}║${NC}  ${DIM}--- Tillägg ---${NC}                                      ${CYAN}║${NC}"
+            tty_echo "  ${CYAN}║${NC} 11. [ ] Samba (fildelning)                              ${CYAN}║${NC}"
+            tty_echo "  ${CYAN}║${NC} 12. [ ] Immich (foto/video-backup)                      ${CYAN}║${NC}"
+            tty_echo "  ${CYAN}║${NC} 13. [ ] NUT (UPS-övervakning)                            ${CYAN}║${NC}"
             tty_echo "  ${CYAN}╠════════════════════════════════════════════════════════╣${NC}"
             tty_echo "  ${CYAN}║${NC}                                                        ${CYAN}║${NC}"
             tty_echo "  ${CYAN}║${NC}  ${BOLD}A${NC} = Kör ALLT                                         ${CYAN}║${NC}"
-            tty_echo "  ${CYAN}║${NC}  ${BOLD}1-10${NC} = Välj specifika steg (t.ex. ${GREEN}6,10${NC})             ${CYAN}║${NC}"
+            tty_echo "  ${CYAN}║${NC}  ${BOLD}1-13${NC} = Välj specifika steg (t.ex. ${GREEN}6,10${NC})             ${CYAN}║${NC}"
             tty_echo "  ${CYAN}║${NC}  ${BOLD}Q${NC} = Avsluta                                            ${CYAN}║${NC}"
             tty_echo "  ${CYAN}║${NC}                                                        ${CYAN}║${NC}"
             tty_echo "  ${CYAN}╚════════════════════════════════════════════════════════╝${NC}"
             tty_echo ""
-            tty_printf "  ${BOLD}Välj [A/1-10/Q]: ${NC}"
+            tty_printf "  ${BOLD}Välj [A/1-13/Q]: ${NC}"
             tty_read MENU_CHOICE
 
             case "${MENU_CHOICE^^}" in
@@ -819,6 +822,7 @@ else
                     # Specifika steg
                     DO_HOST="n"; DO_HA="n"; DO_CF="n"; DO_ADGUARD="n"; DO_NPM="n"
                     DO_FRIGATE="n"; DO_CAMERAS="n"; DO_CF_DNS="n"; DO_NPM_CONF="n"; DO_RDP="n"
+                    DO_SAMBA="n"; DO_IMMICH="n"; DO_NUT="n"
                     SELECTED=$(echo "$MENU_CHOICE" | tr ',' ' ' | tr -s ' ')
                     for sel in $SELECTED; do
                         case "$sel" in
@@ -832,6 +836,9 @@ else
                             8) DO_CF_DNS="y" ;;
                             9) DO_NPM_CONF="y" ;;
                             10) DO_RDP="y" ;;
+                            11) DO_SAMBA="y" ;;
+                            12) DO_IMMICH="y" ;;
+                            13) DO_NUT="y" ;;
                             *) msg_warn "Okänt val: $sel (ignoreras)" ;;
                         esac
                     done
@@ -988,7 +995,7 @@ elif [ "$(get_state host_configured)" == "true" ]; then
 fi
 
 # Hämta template om vi behöver LXC
-if [ "$DO_CF" == "y" ] || [ "$DO_ADGUARD" == "y" ] || [ "$DO_NPM" == "y" ] || [ "$DO_FRIGATE" == "y" ] || [ "$DO_RDP" == "y" ]; then
+if [ "$DO_CF" == "y" ] || [ "$DO_ADGUARD" == "y" ] || [ "$DO_NPM" == "y" ] || [ "$DO_FRIGATE" == "y" ] || [ "$DO_RDP" == "y" ] || [ "${DO_SAMBA:-n}" == "y" ] || [ "${DO_IMMICH:-n}" == "y" ] || [ "${DO_NUT:-n}" == "y" ]; then
     if [ "$DRY_RUN" != "true" ]; then
         TEMPLATE_PATH=$(get_debian_template)
         if [ -z "$TEMPLATE_PATH" ]; then
@@ -998,6 +1005,7 @@ if [ "$DO_CF" == "y" ] || [ "$DO_ADGUARD" == "y" ] || [ "$DO_NPM" == "y" ] || [ 
                 exit 1
             fi
             DO_CF="n"; DO_ADGUARD="n"; DO_NPM="n"; DO_FRIGATE="n"; DO_RDP="n"
+            DO_SAMBA="n"; DO_IMMICH="n"; DO_NUT="n"
         fi
     else
         msg_dry "Skulle ladda ner Debian LXC-template"
@@ -1471,7 +1479,11 @@ echo ""
 _sum_ha_ip="${HA_ACTUAL_IP:-${NETWORK_PREFIX}.${IP_HA}}"
 _sum_npm_ip="${NPM_ACTUAL_IP:-${NETWORK_PREFIX}.${IP_NPM}}"
 _sum_frigate_ip="${FRIGATE_ACTUAL_IP:-${NETWORK_PREFIX}.${IP_FRIGATE}}"
-_sum_guac_ip="${GUAC_ACTUAL_IP:-${NETWORK_PREFIX}.${IP_GUACAMOLE:-107}}"
+_sum_guac_ip="${GUAC_ACTUAL_IP:-${NETWORK_PREFIX}.${IP_GUACAMOLE:-108}}"
+_sum_adguard_ip="${ADGUARD_ACTUAL_IP:-${NETWORK_PREFIX}.${IP_ADGUARD:-104}}"
+_sum_samba_ip="${SAMBA_ACTUAL_IP:-${NETWORK_PREFIX}.${IP_SAMBA:-105}}"
+_sum_immich_ip="${IMMICH_ACTUAL_IP:-${NETWORK_PREFIX}.${IP_IMMICH:-106}}"
+_sum_nut_ip="${NUT_ACTUAL_IP:-${NETWORK_PREFIX}.${IP_NUT:-107}}"
 
 echo -e "${CYAN}┌─────────────┬──────────────────────────────────┬──────────────────┐${NC}"
 echo -e "${CYAN}│${NC} ${BOLD}Tjänst${NC}      ${CYAN}│${NC} ${BOLD}Lokal URL${NC}                         ${CYAN}│${NC} ${BOLD}Status${NC}           ${CYAN}│${NC}"
@@ -1481,7 +1493,17 @@ printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN
 printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "NPM Admin" "http://${_sum_npm_ip}:81" "$(check_id_exists $IP_NPM 2>/dev/null && echo 'Installerad' || echo 'Hoppades över')"
 printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "Frigate" "http://${_sum_frigate_ip}:5000" "$(check_id_exists $IP_FRIGATE 2>/dev/null && echo 'Installerad' || echo 'Hoppades över')"
 printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "Cloudflared" "(ingen UI — tunnel)" "$(check_id_exists $IP_CLOUDFLARED 2>/dev/null && echo 'Installerad' || echo 'Hoppades över')"
-printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "Guacamole" "http://${_sum_guac_ip}:8080" "$(check_id_exists ${IP_GUACAMOLE:-107} 2>/dev/null && echo 'Installerad' || echo 'Hoppades över')"
+printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "Guacamole" "http://${_sum_guac_ip}:8080" "$(check_id_exists ${IP_GUACAMOLE:-108} 2>/dev/null && echo 'Installerad' || echo 'Hoppades över')"
+printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "AdGuard" "http://${_sum_adguard_ip}:3000" "$(check_id_exists ${IP_ADGUARD:-104} 2>/dev/null && echo 'Installerad' || echo 'Hoppades över')"
+if check_id_exists ${IP_SAMBA:-105} 2>/dev/null; then
+    printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "Samba" "//${_sum_samba_ip}/share" "Installerad"
+fi
+if check_id_exists ${IP_IMMICH:-106} 2>/dev/null; then
+    printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "Immich" "http://${_sum_immich_ip}:2283" "Installerad"
+fi
+if check_id_exists ${IP_NUT:-107} 2>/dev/null; then
+    printf "${CYAN}│${NC} %-11s ${CYAN}│${NC} %-32s ${CYAN}│${NC} %-16s ${CYAN}│${NC}\n" "NUT" "http://${_sum_nut_ip}:3493" "Installerad"
+fi
 echo -e "${CYAN}└─────────────┴──────────────────────────────────┴──────────────────┘${NC}"
 
 if [ "${USE_DHCP:-false}" == "true" ]; then

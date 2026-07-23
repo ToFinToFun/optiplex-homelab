@@ -67,12 +67,18 @@ SERVICE_NAMES[frigate]="Frigate"
 SERVICE_NAMES[adguard]="AdGuard Home"
 SERVICE_NAMES[guacamole]="Guacamole"
 SERVICE_NAMES[desktop]="Desktop"
+SERVICE_NAMES[samba]="Samba"
+SERVICE_NAMES[immich]="Immich"
+SERVICE_NAMES[nut]="NUT"
 
 SERVICE_PORTS[ha]=8123
 SERVICE_PORTS[frigate]=5000
 SERVICE_PORTS[npm]=81
 SERVICE_PORTS[adguard]=80
 SERVICE_PORTS[guacamole]=8080
+SERVICE_PORTS[samba]=445
+SERVICE_PORTS[immich]=2283
+SERVICE_PORTS[nut]=3493
 
 # Upptäck HA (VM — använder qm guest exec eller nätverksconfig)
 HA_ID=$(resolve_vm_id "ha" "${IP_HA:-100}")
@@ -216,6 +222,42 @@ if [ -n "$DESK_ACTUAL" ]; then
     msg_ok "Desktop (CT $DESK_ID): ${DESK_ACTUAL}"
 fi
 
+# Samba
+if [ -n "${IP_SAMBA:-}" ]; then
+    SAMBA_ID=$(resolve_ct_id "samba" "${IP_SAMBA}")
+    SAMBA_ACTUAL=$(discover_ct_actual_ip "samba" "${IP_SAMBA}")
+    if [ -n "$SAMBA_ACTUAL" ]; then
+        ACTUAL_IPS[samba]="$SAMBA_ACTUAL"
+        msg_ok "Samba (CT $SAMBA_ID): ${SAMBA_ACTUAL}"
+    elif [ -n "$SAMBA_ID" ]; then
+        msg_warn "Samba (CT $SAMBA_ID): Inte igång"
+    fi
+fi
+
+# Immich
+if [ -n "${IP_IMMICH:-}" ]; then
+    IMMICH_ID=$(resolve_ct_id "immich" "${IP_IMMICH}")
+    IMMICH_ACTUAL=$(discover_ct_actual_ip "immich" "${IP_IMMICH}")
+    if [ -n "$IMMICH_ACTUAL" ]; then
+        ACTUAL_IPS[immich]="$IMMICH_ACTUAL"
+        msg_ok "Immich (CT $IMMICH_ID): ${IMMICH_ACTUAL}"
+    elif [ -n "$IMMICH_ID" ]; then
+        msg_warn "Immich (CT $IMMICH_ID): Inte igång"
+    fi
+fi
+
+# NUT
+if [ -n "${IP_NUT:-}" ]; then
+    NUT_ID=$(resolve_ct_id "nut" "${IP_NUT}")
+    NUT_ACTUAL=$(discover_ct_actual_ip "nut" "${IP_NUT}")
+    if [ -n "$NUT_ACTUAL" ]; then
+        ACTUAL_IPS[nut]="$NUT_ACTUAL"
+        msg_ok "NUT (CT $NUT_ID): ${NUT_ACTUAL}"
+    elif [ -n "$NUT_ID" ]; then
+        msg_warn "NUT (CT $NUT_ID): Inte igång"
+    fi
+fi
+
 # ============================================================
 # 2. JÄMFÖR MOT SETUP.ENV (konfigurerade IP:er)
 # ============================================================
@@ -230,6 +272,9 @@ SVC_TO_VAR[frigate]="IP_FRIGATE"
 SVC_TO_VAR[adguard]="IP_ADGUARD"
 SVC_TO_VAR[guacamole]="IP_GUACAMOLE"
 SVC_TO_VAR[desktop]="IP_DESKTOP"
+SVC_TO_VAR[samba]="IP_SAMBA"
+SVC_TO_VAR[immich]="IP_IMMICH"
+SVC_TO_VAR[nut]="IP_NUT"
 
 # Samla config-uppdateringar
 declare -A CONFIG_UPDATES
