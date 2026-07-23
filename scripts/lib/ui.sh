@@ -61,13 +61,13 @@ tty_read() {
 }
 
 # Funktioner
-msg_info() { echo -e "${ICON_INFO} $1"; }
-msg_ok() { echo -e "${ICON_OK} $1"; }
-msg_warn() { echo -e "${ICON_WARN} ${YELLOW}$1${NC}"; }
-msg_err() { echo -e "${ICON_FAIL} ${RED}$1${NC}"; }
-msg_skip() { echo -e "${ICON_SKIP} ${CYAN}$1${NC}"; }
-msg_header() { echo -e "\n${BOLD}${BLUE}=== $1 ===${NC}"; }
-msg_dry() { echo -e "${ICON_DRY} ${DIM}(dry-run) Skulle: $1${NC}"; }
+msg_info() { echo -e "${ICON_INFO} $1" >&2; }
+msg_ok() { echo -e "${ICON_OK} $1" >&2; }
+msg_warn() { echo -e "${ICON_WARN} ${YELLOW}$1${NC}" >&2; }
+msg_err() { echo -e "${ICON_FAIL} ${RED}$1${NC}" >&2; }
+msg_skip() { echo -e "${ICON_SKIP} ${CYAN}$1${NC}" >&2; }
+msg_header() { echo -e "\n${BOLD}${BLUE}=== $1 ===${NC}" >&2; }
+msg_dry() { echo -e "${ICON_DRY} ${DIM}(dry-run) Skulle: $1${NC}" >&2; }
 
 # Dry-run wrapper — kör kommando om inte dry-run
 run_cmd() {
