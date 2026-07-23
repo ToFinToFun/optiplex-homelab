@@ -84,7 +84,7 @@ cleanup_on_exit() {
                 answer="n"
             else
                 echo -ne "  ${BOLD}Vill du ta bort dem? [y/N]: ${NC}"
-                read -t 10 answer < /dev/tty 2>/dev/null || answer="n"
+                tty_read -t 10 answer 2>/dev/null || answer="n"
             fi
             if [[ "$answer" =~ ^[Yy]$ ]]; then
                 while [ -s "/tmp/.optiplex_rollback_stack" ]; do
@@ -222,7 +222,7 @@ show_bios_status
 
 # Erbjud BIOS-konfiguration direkt om problem hittades OCH host inte är konfigurerad
 if [ $BIOS_ISSUES -gt 0 ] && [ "$(get_state host_configured)" != "true" ]; then
-    echo "" > /dev/tty
+    tty_echo ""
     if ask_yes_no "Vill du konfigurera Proxmox Host nu (BIOS, repos, TRIM, udev)?" "Y"; then
         if [ "$DRY_RUN" == "true" ]; then
             msg_dry "Skulle konfigurera repos, TRIM, udev, BIOS"
@@ -232,7 +232,7 @@ if [ $BIOS_ISSUES -gt 0 ] && [ "$(get_state host_configured)" != "true" ]; then
             
             # Om BIOS ändrades behövs reboot — erbjud det
             if [ "$(get_state needs_reboot)" == "true" ]; then
-                echo "" > /dev/tty
+                tty_echo ""
                 msg_warn "BIOS-ändringar kräver omstart för att träda i kraft."
                 if [ "$HEADLESS" == "true" ]; then
                     msg_info "(headless) Reboot skjuts upp — fortsätter installationen."
@@ -269,53 +269,53 @@ if load_config; then
     [ "$(get_state cfdns_configured)" != "true" ] && MISSING_COUNT=$((MISSING_COUNT + 1))
     
     if [ $MISSING_COUNT -gt 0 ]; then
-        echo "" > /dev/tty
-        echo -e "  ${YELLOW}${BOLD}╔════════════════════════════════════════════════════════════╗${NC}" > /dev/tty
-        echo -e "  ${YELLOW}${BOLD}║${NC} ${BOLD}Saker som fortfarande behöver konfigureras:${NC}              ${YELLOW}${BOLD}║${NC}" > /dev/tty
-        echo -e "  ${YELLOW}${BOLD}╚════════════════════════════════════════════════════════════╝${NC}" > /dev/tty
-        echo "" > /dev/tty
+        tty_echo ""
+        tty_echo "  ${YELLOW}${BOLD}╔════════════════════════════════════════════════════════════╗${NC}"
+        tty_echo "  ${YELLOW}${BOLD}║${NC} ${BOLD}Saker som fortfarande behöver konfigureras:${NC}              ${YELLOW}${BOLD}║${NC}"
+        tty_echo "  ${YELLOW}${BOLD}╚════════════════════════════════════════════════════════════╝${NC}"
+        tty_echo ""
         
         # 1. Tunnel Token
         if [ -z "$CF_TUNNEL_TOKEN" ]; then
-            echo -e "  ${RED}✗${NC} ${BOLD}Cloudflare Tunnel Token${NC} — krävs för extern åtkomst" > /dev/tty
-            echo -e "    ${DIM}Utan denna fungerar INTE ha.dindomän.se, frigate.dindomän.se etc.${NC}" > /dev/tty
-            echo -e "    ${CYAN}Skapa:${NC} https://one.dash.cloudflare.com → Networks → Tunnels" > /dev/tty
-            echo -e "    ${CYAN}Steg:${NC}  Create Tunnel → Döp den → Kopiera token (börjar med eyJh...)" > /dev/tty
-            echo "" > /dev/tty
+            tty_echo "  ${RED}✗${NC} ${BOLD}Cloudflare Tunnel Token${NC} — krävs för extern åtkomst"
+            tty_echo "    ${DIM}Utan denna fungerar INTE ha.dindomän.se, frigate.dindomän.se etc.${NC}"
+            tty_echo "    ${CYAN}Skapa:${NC} https://one.dash.cloudflare.com → Networks → Tunnels"
+            tty_echo "    ${CYAN}Steg:${NC}  Create Tunnel → Döp den → Kopiera token (börjar med eyJh...)"
+            tty_echo ""
         fi
         
         # 2. Cloudflare DNS (API token + domän + tunnel UUID)
         if [ "$(get_state cfdns_configured)" != "true" ]; then
-            echo -e "  ${RED}✗${NC} ${BOLD}Cloudflare DNS & Zero Trust${NC} — krävs för automatisk DNS-routing" > /dev/tty
-            echo -e "    ${DIM}Skapar DNS-poster (ha.domän.se → tunnel) och Zero Trust-skydd.${NC}" > /dev/tty
-            echo -e "    ${CYAN}Du behöver:${NC}" > /dev/tty
-            echo -e "      1. Din domän (t.ex. dindomän.se — måste vara Active i Cloudflare)" > /dev/tty
-            echo -e "      2. Tunnel UUID (synlig i Zero Trust → Tunnels → din tunnel)" > /dev/tty
-            echo -e "      3. API Token med behörigheter:" > /dev/tty
-            echo -e "         ${DIM}Zone:DNS:Edit + Account:Cloudflare Tunnel:Edit + Account:Access:Edit${NC}" > /dev/tty
-            echo -e "    ${CYAN}Skapa API Token:${NC} https://dash.cloudflare.com/profile/api-tokens" > /dev/tty
-            echo -e "    ${CYAN}Fullständig guide:${NC} docs/10-cloudflare-api-setup.md" > /dev/tty
-            echo "" > /dev/tty
+            tty_echo "  ${RED}✗${NC} ${BOLD}Cloudflare DNS & Zero Trust${NC} — krävs för automatisk DNS-routing"
+            tty_echo "    ${DIM}Skapar DNS-poster (ha.domän.se → tunnel) och Zero Trust-skydd.${NC}"
+            tty_echo "    ${CYAN}Du behöver:${NC}"
+            tty_echo "      1. Din domän (t.ex. dindomän.se — måste vara Active i Cloudflare)"
+            tty_echo "      2. Tunnel UUID (synlig i Zero Trust → Tunnels → din tunnel)"
+            tty_echo "      3. API Token med behörigheter:"
+            tty_echo "         ${DIM}Zone:DNS:Edit + Account:Cloudflare Tunnel:Edit + Account:Access:Edit${NC}"
+            tty_echo "    ${CYAN}Skapa API Token:${NC} https://dash.cloudflare.com/profile/api-tokens"
+            tty_echo "    ${CYAN}Fullständig guide:${NC} docs/10-cloudflare-api-setup.md"
+            tty_echo ""
         fi
         
         # Google AI API Key (valfritt — för Frigate 0.18+ generativ AI)
-        echo -e "  ${CYAN}○${NC} ${BOLD}Google Gemini API Key${NC} — valfritt (generativ AI i Frigate 0.18+)" > /dev/tty
-        echo -e "    ${DIM}Ger: AI-beskrivningar av händelser, semantic search, sammanfattningar.${NC}" > /dev/tty
-        echo -e "    ${DIM}Frigate fungerar utan detta — du kan lägga till det när som helst.${NC}" > /dev/tty
-        echo -e "    ${CYAN}Skapa nyckel:${NC} https://aistudio.google.com/api-keys" > /dev/tty
-        echo -e "    ${CYAN}Steg:${NC}  Accept ToS → Get API Key → Create API key → Kopiera" > /dev/tty
-        echo -e "    ${CYAN}Lägg till:${NC} docker-compose.yml → environment → FRIGATE_GEMINI_API_KEY=<nyckel>" > /dev/tty
-        echo -e "    ${CYAN}config.yml:${NC}" > /dev/tty
-        echo -e "      ${DIM}genai:${NC}" > /dev/tty
-        echo -e "      ${DIM}  provider: gemini${NC}" > /dev/tty
-        echo -e "      ${DIM}  api_key: \"{FRIGATE_GEMINI_API_KEY}\"${NC}" > /dev/tty
-        echo -e "      ${DIM}  model: gemini-2.5-flash${NC}" > /dev/tty
-        echo "" > /dev/tty
+        tty_echo "  ${CYAN}○${NC} ${BOLD}Google Gemini API Key${NC} — valfritt (generativ AI i Frigate 0.18+)"
+        tty_echo "    ${DIM}Ger: AI-beskrivningar av händelser, semantic search, sammanfattningar.${NC}"
+        tty_echo "    ${DIM}Frigate fungerar utan detta — du kan lägga till det när som helst.${NC}"
+        tty_echo "    ${CYAN}Skapa nyckel:${NC} https://aistudio.google.com/api-keys"
+        tty_echo "    ${CYAN}Steg:${NC}  Accept ToS → Get API Key → Create API key → Kopiera"
+        tty_echo "    ${CYAN}Lägg till:${NC} docker-compose.yml → environment → FRIGATE_GEMINI_API_KEY=<nyckel>"
+        tty_echo "    ${CYAN}config.yml:${NC}"
+        tty_echo "      ${DIM}genai:${NC}"
+        tty_echo "      ${DIM}  provider: gemini${NC}"
+        tty_echo "      ${DIM}  api_key: \"{FRIGATE_GEMINI_API_KEY}\"${NC}"
+        tty_echo "      ${DIM}  model: gemini-2.5-flash${NC}"
+        tty_echo ""
         
-        echo -e "  ${DIM}────────────────────────────────────────────────────────────${NC}" > /dev/tty
-        echo -e "  ${DIM}Tips: Du kan hoppa över allt nu och aktivera senare genom att${NC}" > /dev/tty
-        echo -e "  ${DIM}köra wizarden igen: cd /opt/optiplex-homelab/scripts && bash setup.sh${NC}" > /dev/tty
-        echo "" > /dev/tty
+        tty_echo "  ${DIM}────────────────────────────────────────────────────────────${NC}"
+        tty_echo "  ${DIM}Tips: Du kan hoppa över allt nu och aktivera senare genom att${NC}"
+        tty_echo "  ${DIM}köra wizarden igen: cd /opt/optiplex-homelab/scripts && bash setup.sh${NC}"
+        tty_echo ""
     fi
     
     # Erbjud att lägga till tunnel-token om den saknas
@@ -349,7 +349,7 @@ else
     msg_info "Ingen setup.env hittades. Låt oss ställa in grunderna."
     
     # Automatisk nätverksdetektering
-    echo -e "\n  ${BOLD}Nätverksdetektering...${NC}" > /dev/tty
+    tty_echo "\n  ${BOLD}Nätverksdetektering...${NC}"
     if confirm_network; then
         msg_ok "Nätverksinställningar bekräftade"
     else
@@ -361,11 +361,11 @@ else
     NODE_HOSTNAME=$(ask_string "Namn på din server (hostname)" "homelab")
     
     # Tunnel token med tydlig varning
-    echo "" > /dev/tty
-    echo -e "  ${CYAN}Cloudflare Tunnel Token ger säker extern åtkomst utan port forwarding.${NC}" > /dev/tty
-    echo -e "  ${CYAN}Utan token fungerar INTE extern åtkomst (ha.dindomän.se etc).${NC}" > /dev/tty
-    echo -e "  ${CYAN}Du kan lägga till den senare — se docs/04-cloudflare-tunnel.md${NC}" > /dev/tty
-    echo "" > /dev/tty
+    tty_echo ""
+    tty_echo "  ${CYAN}Cloudflare Tunnel Token ger säker extern åtkomst utan port forwarding.${NC}"
+    tty_echo "  ${CYAN}Utan token fungerar INTE extern åtkomst (ha.dindomän.se etc).${NC}"
+    tty_echo "  ${CYAN}Du kan lägga till den senare — se docs/04-cloudflare-tunnel.md${NC}"
+    tty_echo ""
     CF_TUNNEL_TOKEN=$(ask_string "Cloudflare Tunnel Token (Enter = hoppa över)" "")
     if [ -z "$CF_TUNNEL_TOKEN" ]; then
         msg_warn "Ingen tunnel-token angiven. Extern åtkomst konfigureras senare."
@@ -373,19 +373,19 @@ else
     fi
     
     # Gemensamt lösenord — används överallt (CT root, NPM admin, MQTT, kamera RTSP)
-    echo "" > /dev/tty
-    echo -e "  ${CYAN}╔══════════════════════════════════════════════════════════╗${NC}" > /dev/tty
-    echo -e "  ${CYAN}║${NC} ${BOLD}Gemensamt lösenord${NC}                                        ${CYAN}║${NC}" > /dev/tty
-    echo -e "  ${CYAN}║${NC}                                                          ${CYAN}║${NC}" > /dev/tty
-    echo -e "  ${CYAN}║${NC} Samma lösenord används för:                                ${CYAN}║${NC}" > /dev/tty
-    echo -e "  ${CYAN}║${NC}   • Alla containers (root-lösenord)                       ${CYAN}║${NC}" > /dev/tty
-    echo -e "  ${CYAN}║${NC}   • NPM admin-konto                                      ${CYAN}║${NC}" > /dev/tty
-    echo -e "  ${CYAN}║${NC}   • MQTT-användare (Frigate → HA)                          ${CYAN}║${NC}" > /dev/tty
-    echo -e "  ${CYAN}║${NC}   • Kamera RTSP-användare                                 ${CYAN}║${NC}" > /dev/tty
-    echo -e "  ${CYAN}║${NC}                                                          ${CYAN}║${NC}" > /dev/tty
-    echo -e "  ${CYAN}║${NC} ${DIM}Du kan byta individuella lösenord senare.${NC}                  ${CYAN}║${NC}" > /dev/tty
-    echo -e "  ${CYAN}╚══════════════════════════════════════════════════════════╝${NC}" > /dev/tty
-    echo "" > /dev/tty
+    tty_echo ""
+    tty_echo "  ${CYAN}╔══════════════════════════════════════════════════════════╗${NC}"
+    tty_echo "  ${CYAN}║${NC} ${BOLD}Gemensamt lösenord${NC}                                        ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}║${NC} Samma lösenord används för:                                ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}║${NC}   • Alla containers (root-lösenord)                       ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}║${NC}   • NPM admin-konto                                      ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}║${NC}   • MQTT-användare (Frigate → HA)                          ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}║${NC}   • Kamera RTSP-användare                                 ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}║${NC}                                                          ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}║${NC} ${DIM}Du kan byta individuella lösenord senare.${NC}                  ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
+    tty_echo ""
     SHARED_PASSWORD=$(ask_string "Välj ett gemensamt lösenord" "" "true")
     while [ -z "$SHARED_PASSWORD" ]; do
         msg_warn "Lösenord kan inte vara tomt."
@@ -393,9 +393,9 @@ else
     done
     
     # Tjänsteanvändare (för RTSP + MQTT)
-    echo "" > /dev/tty
-    echo -e "  ${CYAN}Tjänsteanvändare — skapas på kameror och i HA (Mosquitto).${NC}" > /dev/tty
-    echo -e "  ${CYAN}Samma användarnamn används för RTSP och MQTT.${NC}" > /dev/tty
+    tty_echo ""
+    tty_echo "  ${CYAN}Tjänsteanvändare — skapas på kameror och i HA (Mosquitto).${NC}"
+    tty_echo "  ${CYAN}Samma användarnamn används för RTSP och MQTT.${NC}"
     SERVICE_USER=$(ask_string "Tjänsteanvändarnamn" "frigate")
     
     # Bakkompatibilitet — CT_PASSWORD pekar på SHARED_PASSWORD
@@ -500,30 +500,30 @@ else
         fi
     }
     
-    echo "" > /dev/tty
-    echo -e "  ${CYAN}╔════════════════════════════════════════════════════════╗${NC}" > /dev/tty
-    echo -e "  ${CYAN}║${NC} ${BOLD}Befintlig installation hittad!${NC}                        ${CYAN}║${NC}" > /dev/tty
-    echo -e "  ${CYAN}╠════════════════════════════════════════════════════════╣${NC}" > /dev/tty
-    printf "  ${CYAN}║${NC}  1. $(status_icon $STATUS_HOST) Proxmox Host         %-16s ${CYAN}║${NC}\n" "($STATUS_HOST)" > /dev/tty
-    printf "  ${CYAN}║${NC}  2. $(status_icon $STATUS_HA) Home Assistant       %-16s ${CYAN}║${NC}\n" "($STATUS_HA)" > /dev/tty
-    printf "  ${CYAN}║${NC}  3. $(status_icon $STATUS_CF) Cloudflared          %-16s ${CYAN}║${NC}\n" "($STATUS_CF)" > /dev/tty
-    printf "  ${CYAN}║${NC}  4. $(status_icon $STATUS_NPM) NPM                  %-16s ${CYAN}║${NC}\n" "($STATUS_NPM)" > /dev/tty
-    printf "  ${CYAN}║${NC}  5. $(status_icon $STATUS_FRIGATE) Frigate              %-16s ${CYAN}║${NC}\n" "($STATUS_FRIGATE)" > /dev/tty
-    printf "  ${CYAN}║${NC}  6. $(status_icon $STATUS_CAMERAS) Kameror & Config     %-16s ${CYAN}║${NC}\n" "($STATUS_CAMERAS)" > /dev/tty
-    printf "  ${CYAN}║${NC}  7. $(status_icon $STATUS_CFDNS) Cloudflare DNS       %-16s ${CYAN}║${NC}\n" "($STATUS_CFDNS)" > /dev/tty
-    printf "  ${CYAN}║${NC}  8. $(status_icon $STATUS_NPMCONF) NPM Auto-Config      %-16s ${CYAN}║${NC}\n" "($STATUS_NPMCONF)" > /dev/tty
-    printf "  ${CYAN}║${NC}  9. $(status_icon $STATUS_RDP) Remote Desktop      %-16s ${CYAN}║${NC}\n" "($STATUS_RDP)" > /dev/tty
-    echo -e "  ${CYAN}╠════════════════════════════════════════════════════════╣${NC}" > /dev/tty
-    echo -e "  ${CYAN}║${NC}                                                        ${CYAN}║${NC}" > /dev/tty
-    echo -e "  ${CYAN}║${NC}  ${BOLD}N${NC} = Kör bara det som saknas (rekommenderat)           ${CYAN}║${NC}" > /dev/tty
-    echo -e "  ${CYAN}║${NC}  ${BOLD}A${NC} = Kör ALLT (inklusive klara steg)                   ${CYAN}║${NC}" > /dev/tty
-    echo -e "  ${CYAN}║${NC}  ${BOLD}1-9${NC} = Välj specifika steg (t.ex. ${GREEN}6,9${NC})               ${CYAN}║${NC}" > /dev/tty
-    echo -e "  ${CYAN}║${NC}  ${BOLD}Q${NC} = Avsluta                                            ${CYAN}║${NC}" > /dev/tty
-    echo -e "  ${CYAN}║${NC}                                                        ${CYAN}║${NC}" > /dev/tty
-    echo -e "  ${CYAN}╚════════════════════════════════════════════════════════╝${NC}" > /dev/tty
-    echo "" > /dev/tty
-    echo -ne "  ${BOLD}Välj [N/A/1-9/Q]: ${NC}" > /dev/tty
-    read MENU_CHOICE < /dev/tty
+    tty_echo ""
+    tty_echo "  ${CYAN}╔════════════════════════════════════════════════════════╗${NC}"
+    tty_echo "  ${CYAN}║${NC} ${BOLD}Befintlig installation hittad!${NC}                        ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}╠════════════════════════════════════════════════════════╣${NC}"
+    tty_printf "  ${CYAN}║${NC}  1. $(status_icon $STATUS_HOST) Proxmox Host         %-16s ${CYAN}║${NC}\n" "($STATUS_HOST)"
+    tty_printf "  ${CYAN}║${NC}  2. $(status_icon $STATUS_HA) Home Assistant       %-16s ${CYAN}║${NC}\n" "($STATUS_HA)"
+    tty_printf "  ${CYAN}║${NC}  3. $(status_icon $STATUS_CF) Cloudflared          %-16s ${CYAN}║${NC}\n" "($STATUS_CF)"
+    tty_printf "  ${CYAN}║${NC}  4. $(status_icon $STATUS_NPM) NPM                  %-16s ${CYAN}║${NC}\n" "($STATUS_NPM)"
+    tty_printf "  ${CYAN}║${NC}  5. $(status_icon $STATUS_FRIGATE) Frigate              %-16s ${CYAN}║${NC}\n" "($STATUS_FRIGATE)"
+    tty_printf "  ${CYAN}║${NC}  6. $(status_icon $STATUS_CAMERAS) Kameror & Config     %-16s ${CYAN}║${NC}\n" "($STATUS_CAMERAS)"
+    tty_printf "  ${CYAN}║${NC}  7. $(status_icon $STATUS_CFDNS) Cloudflare DNS       %-16s ${CYAN}║${NC}\n" "($STATUS_CFDNS)"
+    tty_printf "  ${CYAN}║${NC}  8. $(status_icon $STATUS_NPMCONF) NPM Auto-Config      %-16s ${CYAN}║${NC}\n" "($STATUS_NPMCONF)"
+    tty_printf "  ${CYAN}║${NC}  9. $(status_icon $STATUS_RDP) Remote Desktop      %-16s ${CYAN}║${NC}\n" "($STATUS_RDP)"
+    tty_echo "  ${CYAN}╠════════════════════════════════════════════════════════╣${NC}"
+    tty_echo "  ${CYAN}║${NC}                                                        ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}║${NC}  ${BOLD}N${NC} = Kör bara det som saknas (rekommenderat)           ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}║${NC}  ${BOLD}A${NC} = Kör ALLT (inklusive klara steg)                   ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}║${NC}  ${BOLD}1-9${NC} = Välj specifika steg (t.ex. ${GREEN}6,9${NC})               ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}║${NC}  ${BOLD}Q${NC} = Avsluta                                            ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}║${NC}                                                        ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}╚════════════════════════════════════════════════════════╝${NC}"
+    tty_echo ""
+    tty_printf "  ${BOLD}Välj [N/A/1-9/Q]: ${NC}"
+    tty_read MENU_CHOICE
     
     case "${MENU_CHOICE^^}" in
         Q|q)
@@ -613,7 +613,7 @@ if [ "$DO_CF" == "n" ] && [ -n "$CF_TUNNEL_TOKEN" ] && check_id_exists $IP_CLOUD
     # Kolla om cloudflared service redan kör
     CF_RUNNING=$(pct exec $IP_CLOUDFLARED -- systemctl is-active cloudflared 2>/dev/null || echo "inactive")
     if [ "$CF_RUNNING" != "active" ]; then
-        echo "" > /dev/tty
+        tty_echo ""
         msg_info "Cloudflared-containern finns men tunneln är inte aktiv."
         if ask_yes_no "Vill du aktivera Cloudflare Tunnel med din token nu?" "Y"; then
             msg_info "Installerar tunnel-token i CT ${IP_CLOUDFLARED}..."
@@ -622,7 +622,7 @@ if [ "$DO_CF" == "n" ] && [ -n "$CF_TUNNEL_TOKEN" ] && check_id_exists $IP_CLOUD
                 msg_ok "Cloudflare Tunnel aktiverad och kör!"
             else
                 msg_warn "Tunnel-tjänsten startade inte. Kontrollera token och kör:"
-                echo -e "  ${YELLOW}pct exec ${IP_CLOUDFLARED} -- cloudflared service install <TOKEN>${NC}" > /dev/tty
+                tty_echo "  ${YELLOW}pct exec ${IP_CLOUDFLARED} -- cloudflared service install <TOKEN>${NC}"
             fi
         fi
     fi
@@ -657,7 +657,7 @@ if [ "$DO_HOST" == "y" ] && [ "$(get_state host_configured)" != "true" ]; then
         set_state host_configured true
         
         # Erbjud Proxmox-uppdatering
-        echo "" > /dev/tty
+        tty_echo ""
         if ask_yes_no "Vill du kolla efter Proxmox-uppdateringar?" "N"; then
             bash tools/upgrade-proxmox.sh
         fi

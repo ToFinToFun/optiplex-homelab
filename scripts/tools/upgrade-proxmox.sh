@@ -120,8 +120,8 @@ if echo "$CURRENT_VERSION" | grep -q "pve-manager/9"; then
         echo -e "  • Minimal risk — minor-uppdateringar är bakutåtkompatibla"
         echo ""
         
-        echo -ne "${BOLD}Vill du installera uppdateringarna? [j/N]: ${NC}" > /dev/tty
-        read CONFIRM < /dev/tty
+        tty_printf "${BOLD}Vill du installera uppdateringarna? [j/N]: ${NC}"
+        tty_read CONFIRM
         if [[ ! "$CONFIRM" =~ ^[jJyY]$ ]]; then
             echo -e "\n${YELLOW}[AVBRUTEN]${NC} Inga ändringar gjorda."
             exit 0
@@ -134,8 +134,8 @@ if echo "$CURRENT_VERSION" | grep -q "pve-manager/9"; then
         
         if [ -n "$KERNEL_UPD" ]; then
             echo -e "${YELLOW}[OBS]${NC} Ny kernel installerad. Reboot krävs."
-            echo -ne "${BOLD}Vill du starta om nu? [j/N]: ${NC}" > /dev/tty
-            read REBOOT_CONFIRM < /dev/tty
+            tty_printf "${BOLD}Vill du starta om nu? [j/N]: ${NC}"
+            tty_read REBOOT_CONFIRM
             if [[ "$REBOOT_CONFIRM" =~ ^[jJyY]$ ]]; then
                 echo -e "  Startar om om 5 sekunder..."
                 sleep 5
@@ -209,8 +209,8 @@ echo ""
 # ============================================================
 # Bekräftelse
 # ============================================================
-echo -ne "${BOLD}Vill du starta uppgraderingen? [j/N]: ${NC}" > /dev/tty
-read CONFIRM < /dev/tty
+tty_printf "${BOLD}Vill du starta uppgraderingen? [j/N]: ${NC}"
+tty_read CONFIRM
 if [[ ! "$CONFIRM" =~ ^[jJyY]$ ]]; then
     echo -e "\n${YELLOW}[AVBRUTEN]${NC} Uppgraderingen avbröts. Inget har ändrats."
     exit 0
@@ -247,8 +247,8 @@ else
         echo -e "    • VM $VM ($VM_NAME)"
     done
     echo ""
-    echo -ne "${BOLD}Vill du stoppa alla dessa nu? [J/n]: ${NC}" > /dev/tty
-    read STOP_ANSWER < /dev/tty
+    tty_printf "${BOLD}Vill du stoppa alla dessa nu? [J/n]: ${NC}"
+    tty_read STOP_ANSWER
     if [[ ! "$STOP_ANSWER" =~ ^[nN]$ ]]; then
         for CT in $RUNNING_CTS; do
             echo -e "  ${CYAN}→${NC} Stoppar CT $CT..."
@@ -308,8 +308,8 @@ echo -e "  ${CYAN}→${NC} Uppgraderar alla 8.4-paket (behåller befintliga conf
 if ! apt-get dist-upgrade -y -o Dpkg::Options::="--force-confold" 2>&1 | tail -5; then
     echo -e "  ${RED}[FEL]${NC} apt dist-upgrade misslyckades."
     echo -e "        Kolla loggen: $LOG"
-    echo -ne "${BOLD}Vill du fortsätta ändå? [j/N]: ${NC}" > /dev/tty
-    read CONT < /dev/tty
+    tty_printf "${BOLD}Vill du fortsätta ändå? [j/N]: ${NC}"
+    tty_read CONT
     [[ ! "$CONT" =~ ^[jJyY]$ ]] && exit 1
 fi
 
@@ -344,13 +344,13 @@ if grep -q "FAILURES" /tmp/pve8to9-output.txt; then
     echo -e "  ${RED}[VARNING]${NC} pve8to9 hittade problem som bör åtgärdas!"
     echo -e "        Läs utskriften ovan noggrant."
     echo ""
-    echo -ne "${BOLD}Vill du fortsätta trots varningarna? [j/N]: ${NC}" > /dev/tty
-    read CONT < /dev/tty
+    tty_printf "${BOLD}Vill du fortsätta trots varningarna? [j/N]: ${NC}"
+    tty_read CONT
     [[ ! "$CONT" =~ ^[jJyY]$ ]] && { echo -e "\n${YELLOW}[AVBRUTEN]${NC} Fixa problemen och kör skriptet igen."; exit 1; }
 elif grep -qi "WARN" /tmp/pve8to9-output.txt; then
     echo -e "  ${YELLOW}[INFO]${NC} pve8to9 hade varningar (ej kritiska)."
-    echo -ne "${BOLD}Fortsätta? [J/n]: ${NC}" > /dev/tty
-    read CONT < /dev/tty
+    tty_printf "${BOLD}Fortsätta? [J/n]: ${NC}"
+    tty_read CONT
     [[ "$CONT" =~ ^[nN]$ ]] && exit 0
 else
     echo -e "  ${GREEN}[OK]${NC} Inga problem hittades!"
@@ -445,8 +445,8 @@ echo -e "  ${CYAN}→${NC} Uppdaterar paketlistor med nya repos..."
 if ! apt-get update 2>&1 | tail -3; then
     echo -e "  ${RED}[FEL]${NC} apt update misslyckades med nya repos."
     echo -e "        Kontrollera /etc/apt/sources.list och sources.list.d/"
-    echo -ne "${BOLD}Vill du fortsätta ändå? [j/N]: ${NC}" > /dev/tty
-    read CONT < /dev/tty
+    tty_printf "${BOLD}Vill du fortsätta ändå? [j/N]: ${NC}"
+    tty_read CONT
     [[ ! "$CONT" =~ ^[jJyY]$ ]] && exit 1
 fi
 
@@ -468,8 +468,8 @@ echo -e "  ${GREEN}[AUTO]${NC} Konfigurationsfiler behålls automatiskt — du b
 echo -e "  inte svara på några frågor under uppgraderingen."
 echo ""
 
-echo -ne "${BOLD}Starta uppgraderingen nu? [j/N]: ${NC}" > /dev/tty
-read CONFIRM < /dev/tty
+tty_printf "${BOLD}Starta uppgraderingen nu? [j/N]: ${NC}"
+tty_read CONFIRM
 if [[ ! "$CONFIRM" =~ ^[jJyY]$ ]]; then
     echo -e "\n${YELLOW}[AVBRUTEN]${NC} Repos är redan bytta till Trixie."
     echo -e "  Kör ${GREEN}apt dist-upgrade${NC} manuellt när du är redo."
@@ -520,8 +520,8 @@ if [ -f /tmp/upgrade-was-running.txt ]; then
     done
 fi
 
-echo -ne "${BOLD}Starta om nu? [J/n]: ${NC}" > /dev/tty
-read REBOOT < /dev/tty
+tty_printf "${BOLD}Starta om nu? [J/n]: ${NC}"
+tty_read REBOOT
 if [[ "$REBOOT" =~ ^[nN]$ ]]; then
     echo -e "\n  ${YELLOW}[INFO]${NC} Starta om manuellt när du är redo:"
     echo -e "        ${GREEN}reboot${NC}"

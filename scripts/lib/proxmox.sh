@@ -35,8 +35,8 @@ get_debian_template() {
     fi
     
     if [ -z "$template" ]; then
-        msg_err "Ingen Debian LXC-template hittades i Proxmox repos!" > /dev/tty
-        msg_info "Kör manuellt: pveam update && pveam available -section system | grep debian" > /dev/tty
+        msg_err "Ingen Debian LXC-template hittades i Proxmox repos!"
+        msg_info "Kör manuellt: pveam update && pveam available -section system | grep debian"
         echo ""
         return
     fi
@@ -45,10 +45,10 @@ get_debian_template() {
     
     # Ladda ner om den inte redan finns
     if [ ! -f "/var/lib/vz/template/cache/$template_name" ]; then
-        msg_info "Laddar ner ${template_name} (tar en minut)..." > /dev/tty
+        msg_info "Laddar ner ${template_name} (tar en minut)..."
         if ! pveam download $storage "$template" > /dev/null 2>&1; then
-            msg_err "Nedladdning av template misslyckades!" > /dev/tty
-            msg_info "Kontrollera internet: ping download.proxmox.com" > /dev/tty
+            msg_err "Nedladdning av template misslyckades!"
+            msg_info "Kontrollera internet: ping download.proxmox.com"
             echo ""
             return
         fi
@@ -56,13 +56,13 @@ get_debian_template() {
     
     # Verifiera att filen faktiskt finns och inte är tom
     if [ ! -s "/var/lib/vz/template/cache/$template_name" ]; then
-        msg_err "Template-filen är tom eller korrupt: $template_name" > /dev/tty
+        msg_err "Template-filen är tom eller korrupt: $template_name"
         rm -f "/var/lib/vz/template/cache/$template_name"
         echo ""
         return
     fi
     
-    msg_ok "Template: $template_name" > /dev/tty
+    msg_ok "Template: $template_name"
     echo "${storage}:vztmpl/${template_name}"
 }
 
@@ -93,25 +93,25 @@ find_extra_disks() {
 # Returnerar antal problem via BIOS_ISSUES (global)
 # ============================================================
 show_bios_status() {
-    echo "" > /dev/tty
-    echo -e "  ${BOLD}── BIOS & Hårdvarustatus ──${NC}" > /dev/tty
-    echo "" > /dev/tty
+    tty_echo ""
+    tty_echo "  ${BOLD}── BIOS & Hårdvarustatus ──${NC}"
+    tty_echo ""
 
     BIOS_ISSUES=0
 
     # VT-x
     if grep -c -E '(vmx|svm)' /proc/cpuinfo > /dev/null 2>&1; then
-        echo -e "  ${GREEN}✓${NC} VT-x (Virtualisering) — aktiverat" > /dev/tty
+        tty_echo "  ${GREEN}✓${NC} VT-x (Virtualisering) — aktiverat"
     else
-        echo -e "  ${RED}✗${NC} VT-x (Virtualisering) — EJ aktiverat" > /dev/tty
+        tty_echo "  ${RED}✗${NC} VT-x (Virtualisering) — EJ aktiverat"
         BIOS_ISSUES=$((BIOS_ISSUES + 1))
     fi
 
     # VT-d / IOMMU
     if dmesg 2>/dev/null | grep -i -q -e "DMAR" -e "IOMMU"; then
-        echo -e "  ${GREEN}✓${NC} VT-d (IOMMU/Passthrough) — aktiverat" > /dev/tty
+        tty_echo "  ${GREEN}✓${NC} VT-d (IOMMU/Passthrough) — aktiverat"
     else
-        echo -e "  ${RED}✗${NC} VT-d (IOMMU/Passthrough) — EJ aktiverat" > /dev/tty
+        tty_echo "  ${RED}✗${NC} VT-d (IOMMU/Passthrough) — EJ aktiverat"
         BIOS_ISSUES=$((BIOS_ISSUES + 1))
     fi
 
@@ -121,9 +121,9 @@ show_bios_status() {
         if command -v vainfo &>/dev/null; then
             VAAPI_INFO=$(vainfo 2>/dev/null | grep "vainfo: Driver" | head -1 | sed 's/.*: //')
         fi
-        echo -e "  ${GREEN}✓${NC} Intel iGPU — hittad (/dev/dri/renderD128) ${VAAPI_INFO:+[$VAAPI_INFO]}" > /dev/tty
+        tty_echo "  ${GREEN}✓${NC} Intel iGPU — hittad (/dev/dri/renderD128) ${VAAPI_INFO:+[$VAAPI_INFO]}"
     else
-        echo -e "  ${RED}✗${NC} Intel iGPU — EJ hittad" > /dev/tty
+        tty_echo "  ${RED}✗${NC} Intel iGPU — EJ hittad"
         BIOS_ISSUES=$((BIOS_ISSUES + 1))
     fi
 
@@ -134,20 +134,20 @@ show_bios_status() {
         local WOL_CHECK
         WOL_CHECK=$(ethtool "$PRIMARY_NIC_CHECK" 2>/dev/null | grep "Wake-on:" | tail -1 | awk '{print $2}')
         if echo "$WOL_CHECK" | grep -q "g"; then
-            echo -e "  ${GREEN}✓${NC} Wake-on-LAN — aktiverat ($PRIMARY_NIC_CHECK)" > /dev/tty
+            tty_echo "  ${GREEN}✓${NC} Wake-on-LAN — aktiverat ($PRIMARY_NIC_CHECK)"
         else
-            echo -e "  ${YELLOW}⚠${NC} Wake-on-LAN — EJ aktiverat" > /dev/tty
+            tty_echo "  ${YELLOW}⚠${NC} Wake-on-LAN — EJ aktiverat"
         fi
     fi
 
     # TRIM
     if systemctl is-active fstrim.timer &>/dev/null; then
-        echo -e "  ${GREEN}✓${NC} SSD TRIM — aktiverat (veckovis)" > /dev/tty
+        tty_echo "  ${GREEN}✓${NC} SSD TRIM — aktiverat (veckovis)"
     else
-        echo -e "  ${YELLOW}⚠${NC} SSD TRIM — ej aktiverat" > /dev/tty
+        tty_echo "  ${YELLOW}⚠${NC} SSD TRIM — ej aktiverat"
     fi
 
-    echo "" > /dev/tty
+    tty_echo ""
 
     if [ $BIOS_ISSUES -eq 0 ]; then
         msg_ok "Alla kritiska BIOS-inställningar verifierade!"

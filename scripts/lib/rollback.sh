@@ -61,7 +61,7 @@ rollback_offer() {
     local id="$1"
     local name="$2"
     
-    echo "" > /dev/tty
+    tty_echo ""
     msg_warn "Installationen av ${name} (ID ${id}) misslyckades."
     
     if [ "$HEADLESS" == "true" ]; then

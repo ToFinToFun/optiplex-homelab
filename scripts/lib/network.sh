@@ -66,27 +66,27 @@ confirm_network() {
     
     # Om detektering misslyckades helt — gå direkt till manuell inmatning
     if [ -z "$DETECTED_IP" ] && [ -z "$DETECTED_GATEWAY" ]; then
-        echo -e "\n  ${YELLOW}[INFO]${NC} Kunde inte detektera nätverket automatiskt." > /dev/tty
-        echo -e "  Du får ange inställningarna manuellt.\n" > /dev/tty
+        tty_echo "\n  ${YELLOW}[INFO]${NC} Kunde inte detektera nätverket automatiskt."
+        tty_echo "  Du får ange inställningarna manuellt.\n"
         return 1
     fi
     
-    echo -e "\n  ${CYAN}╔════════════════════════════════════════════════════════════╗${NC}" > /dev/tty
-    echo -e "  ${CYAN}║${NC} ${BOLD}Jag hittade ditt nätverk:${NC}                                  ${CYAN}║${NC}" > /dev/tty
-    echo -e "  ${CYAN}╠════════════════════════════════════════════════════════════╣${NC}" > /dev/tty
-    printf "  ${CYAN}║${NC}   Gateway:     ${GREEN}%-42s${NC} ${CYAN}║${NC}\n" "${DETECTED_GATEWAY:-ej hittad}" > /dev/tty
-    printf "  ${CYAN}║${NC}   Prefix:      ${GREEN}%-42s${NC} ${CYAN}║${NC}\n" "${DETECTED_PREFIX:-ej hittad}" > /dev/tty
-    printf "  ${CYAN}║${NC}   Din IP:      ${GREEN}%-42s${NC} ${CYAN}║${NC}\n" "${DETECTED_IP:-ej hittad}" > /dev/tty
-    printf "  ${CYAN}║${NC}   DNS:         ${GREEN}%-42s${NC} ${CYAN}║${NC}\n" "${DETECTED_DNS:-ej hittad}" > /dev/tty
+    tty_echo "\n  ${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
+    tty_echo "  ${CYAN}║${NC} ${BOLD}Jag hittade ditt nätverk:${NC}                                  ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}╠════════════════════════════════════════════════════════════╣${NC}"
+    tty_printf "  ${CYAN}║${NC}   Gateway:     ${GREEN}%-42s${NC} ${CYAN}║${NC}\n" "${DETECTED_GATEWAY:-ej hittad}"
+    tty_printf "  ${CYAN}║${NC}   Prefix:      ${GREEN}%-42s${NC} ${CYAN}║${NC}\n" "${DETECTED_PREFIX:-ej hittad}"
+    tty_printf "  ${CYAN}║${NC}   Din IP:      ${GREEN}%-42s${NC} ${CYAN}║${NC}\n" "${DETECTED_IP:-ej hittad}"
+    tty_printf "  ${CYAN}║${NC}   DNS:         ${GREEN}%-42s${NC} ${CYAN}║${NC}\n" "${DETECTED_DNS:-ej hittad}"
     # Visa NIC med fysiskt interface om det är en brygga
     if [ -n "$DETECTED_PHYSICAL_NIC" ]; then
         NIC_DISPLAY="${DETECTED_NIC} (brygga → ${DETECTED_PHYSICAL_NIC})"
     else
         NIC_DISPLAY="${DETECTED_NIC:-ej hittad}"
     fi
-    printf "  ${CYAN}║${NC}   NIC:         ${GREEN}%-42s${NC} ${CYAN}║${NC}\n" "$NIC_DISPLAY" > /dev/tty
-    printf "  ${CYAN}║${NC}   Subnät:      ${GREEN}%-42s${NC} ${CYAN}║${NC}\n" "/${DETECTED_CIDR}" > /dev/tty
-    echo -e "  ${CYAN}╚════════════════════════════════════════════════════════════╝${NC}\n" > /dev/tty
+    tty_printf "  ${CYAN}║${NC}   NIC:         ${GREEN}%-42s${NC} ${CYAN}║${NC}\n" "$NIC_DISPLAY"
+    tty_printf "  ${CYAN}║${NC}   Subnät:      ${GREEN}%-42s${NC} ${CYAN}║${NC}\n" "/${DETECTED_CIDR}"
+    tty_echo "  ${CYAN}╚════════════════════════════════════════════════════════════╝${NC}\n"
     
     if ask_yes_no "Stämmer detta?" "Y"; then
         # Exportera till variabler som setup.sh använder

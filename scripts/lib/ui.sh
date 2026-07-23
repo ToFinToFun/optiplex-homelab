@@ -27,6 +27,39 @@ export DRY_RUN="${DRY_RUN:-false}"
 # I headless-mode besvaras alla frågor med default-värdet automatiskt.
 export HEADLESS="${HEADLESS:-false}"
 
+# ============================================================
+# Safe TTY output — skriver till /dev/tty om terminal finns,
+# annars till stdout. Används för interaktiv output som inte
+# ska få scriptet att krascha i terminal-lösa miljöer.
+# ============================================================
+_tty_target() {
+    if [ -t 1 ] || [ -e /dev/tty ]; then
+        echo "/dev/tty"
+    else
+        echo "/dev/stdout"
+    fi
+}
+
+# tty_echo: echo -e som går till terminal om möjligt, annars stdout
+tty_echo() {
+    local target
+    target=$(_tty_target)
+    echo -e "$@" > "$target" 2>/dev/null || echo -e "$@"
+}
+
+# tty_printf: printf som går till terminal om möjligt, annars stdout
+tty_printf() {
+    local target
+    target=$(_tty_target)
+    printf "$@" > "$target" 2>/dev/null || printf "$@"
+}
+
+# tty_read: read som läser från terminal
+# I headless-mode ska detta aldrig anropas (guards i ask_yes_no/ask_string)
+tty_read() {
+    read "$@" < /dev/tty 2>/dev/null
+}
+
 # Funktioner
 msg_info() { echo -e "${ICON_INFO} $1"; }
 msg_ok() { echo -e "${ICON_OK} $1"; }
@@ -77,9 +110,9 @@ show_progress() {
     for ((i=0; i<filled; i++)); do bar+="■"; done
     for ((i=0; i<empty; i++)); do bar+="□"; done
     
-    echo -e "\n  ${CYAN}┌─────────────────────────────────────────────────────────┐${NC}" > /dev/tty
-    echo -e "  ${CYAN}│${NC}  [${GREEN}${bar}${NC}] Steg ${BOLD}${current}/${total}${NC} — ${name}  ${CYAN}│${NC}" > /dev/tty
-    echo -e "  ${CYAN}└─────────────────────────────────────────────────────────┘${NC}" > /dev/tty
+    tty_echo "\n  ${CYAN}┌─────────────────────────────────────────────────────────┐${NC}"
+    tty_echo "  ${CYAN}│${NC}  [${GREEN}${bar}${NC}] Steg ${BOLD}${current}/${total}${NC} — ${name}  ${CYAN}│${NC}"
+    tty_echo "  ${CYAN}└─────────────────────────────────────────────────────────┘${NC}"
 }
 
 # ============================================================
@@ -97,18 +130,18 @@ wait_for_service() {
     
     while [ $elapsed -lt $timeout ]; do
         if nc -z -w 2 "$host" "$port" 2>/dev/null; then
-            printf "\r  ${GREEN}\u2713${NC} ${name} svarar! (${elapsed}s)                    \n" > /dev/tty
+            tty_printf "\r  ${GREEN}\u2713${NC} ${name} svarar! (${elapsed}s)                    \n"
             return 0
         fi
         
         local s=${spinner:$spin_i:1}
-        printf "\r  ${CYAN}%s${NC} V\u00e4ntar p\u00e5 ${name}... (%ds/%ds)" "$s" "$elapsed" "$timeout" > /dev/tty
+        tty_printf "\r  ${CYAN}%s${NC} V\u00e4ntar p\u00e5 ${name}... (%ds/%ds)" "$s" "$elapsed" "$timeout"
         spin_i=$(( (spin_i + 1) % 4 ))
         sleep 2
         elapsed=$((elapsed + 2))
     done
     
-    printf "\r  ${YELLOW}\u26a0${NC} ${name} svarade inte inom ${timeout}s.          \n" > /dev/tty
+    tty_printf "\r  ${YELLOW}\u26a0${NC} ${name} svarade inte inom ${timeout}s.          \n"
     return 1
 }
 
@@ -135,8 +168,8 @@ ask_yes_no() {
     fi
     
     # Skriv prompt direkt till terminalen (inte via tee/pipe)
-    echo -ne "${BOLD}${prompt}${NC}" > /dev/tty
-    read answer < /dev/tty
+    tty_printf "${BOLD}${prompt}${NC}"
+    tty_read answer
     
     if [ -z "$answer" ]; then
         answer="$default"
@@ -174,13 +207,13 @@ ask_string() {
     fi
     
     # Skriv prompt direkt till terminalen (inte via tee/pipe)
-    echo -ne "${BOLD}${prompt}${NC}" > /dev/tty
+    tty_printf "${BOLD}${prompt}${NC}"
     
     if [ "$is_secret" = "true" ]; then
-        read -s answer < /dev/tty
-        echo "" > /dev/tty
+        tty_read -s answer
+        tty_echo ""
     else
-        read answer < /dev/tty
+        tty_read answer
     fi
     
     if [ -z "$answer" ]; then

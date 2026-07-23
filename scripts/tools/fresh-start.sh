@@ -46,7 +46,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 echo -ne "${BOLD}Är du HELT SÄKER? Skriv 'JA' för att fortsätta: ${NC}"
-read CONFIRM < /dev/tty
+tty_read CONFIRM
 if [ "$CONFIRM" != "JA" ]; then
     echo ""
     echo -e "  ${GREEN}[OK]${NC} Avbrutet. Inget har ändrats."

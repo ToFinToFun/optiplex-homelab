@@ -44,15 +44,15 @@ if [ "$FRIGATE_READY" == "true" ]; then
 fi
 
 if [ -f "/opt/optiplex-homelab/generated/frigate-config.yml" ] || [ "$EXISTING_CONFIG" == "true" ]; then
-    echo "" > /dev/tty
+    tty_echo ""
     msg_warn "En Frigate-konfiguration finns redan!"
-    echo "" > /dev/tty
-    echo -e "  ${BOLD}Vad vill du göra?${NC}" > /dev/tty
-    echo -e "  1) Generera ny config från scratch (skriver över — zoner/masker försvinner!)" > /dev/tty
-    echo -e "  2) Uppdatera credentials (RTSP/MQTT/Gemini — behåller kameror & zoner)" > /dev/tty
-    echo -e "  3) Avbryt (behåll allt som det är)" > /dev/tty
-    echo -ne "\n  ${BOLD}Välj [1/2/3]: ${NC}" > /dev/tty
-    read OVERWRITE_CHOICE < /dev/tty
+    tty_echo ""
+    tty_echo "  ${BOLD}Vad vill du göra?${NC}"
+    tty_echo "  1) Generera ny config från scratch (skriver över — zoner/masker försvinner!)"
+    tty_echo "  2) Uppdatera credentials (RTSP/MQTT/Gemini — behåller kameror & zoner)"
+    tty_echo "  3) Avbryt (behåll allt som det är)"
+    tty_printf "\n  ${BOLD}Välj [1/2/3]: ${NC}"
+    tty_read OVERWRITE_CHOICE
     
     case "$OVERWRITE_CHOICE" in
         1)
@@ -67,9 +67,9 @@ if [ -f "/opt/optiplex-homelab/generated/frigate-config.yml" ] || [ "$EXISTING_C
         2)
             # UPPDATERA CREDENTIALS ONLY
             msg_info "Uppdaterar credentials i befintlig config..."
-            echo "" > /dev/tty
-            echo -e "  ${CYAN}Ange nya credentials (Enter = behåll befintligt värde):${NC}" > /dev/tty
-            echo "" > /dev/tty
+            tty_echo ""
+            tty_echo "  ${CYAN}Ange nya credentials (Enter = behåll befintligt värde):${NC}"
+            tty_echo ""
             
             NEW_RTSP_USER=$(ask_string "RTSP-användarnamn" "${SERVICE_USER:-frigate}")
             NEW_RTSP_PASS=$(ask_string "RTSP-lösenord" "${SHARED_PASSWORD}" "true")
@@ -163,23 +163,23 @@ fi
 # ============================================================
 msg_header "Steg 1: Kameratyp"
 
-echo -e "\n  ${BOLD}Vilken typ av kameror har du?${NC}" > /dev/tty
-echo -e "  1) Axis (rekommenderat — dual stream profiles)" > /dev/tty
-echo -e "  2) Annat märke (Hikvision, Dahua, Reolink, etc.)" > /dev/tty
-echo -e "  3) Blandat (Axis + andra)" > /dev/tty
-echo -ne "\n  ${BOLD}Välj [1/2/3]: ${NC}" > /dev/tty
-read CAM_BRAND < /dev/tty
+tty_echo "\n  ${BOLD}Vilken typ av kameror har du?${NC}"
+tty_echo "  1) Axis (rekommenderat — dual stream profiles)"
+tty_echo "  2) Annat märke (Hikvision, Dahua, Reolink, etc.)"
+tty_echo "  3) Blandat (Axis + andra)"
+tty_printf "\n  ${BOLD}Välj [1/2/3]: ${NC}"
+tty_read CAM_BRAND
 CAM_BRAND="${CAM_BRAND:-1}"
 
 if [ "$CAM_BRAND" == "2" ] || [ "$CAM_BRAND" == "3" ]; then
-    echo "" > /dev/tty
+    tty_echo ""
     msg_info "För icke-Axis-kameror genereras generiska RTSP-URLs."
     msg_info "Du behöver fylla i rätt RTSP-path för ditt kameramärke i config.yml efteråt."
-    echo -e "  ${DIM}Vanliga RTSP-paths:${NC}" > /dev/tty
-    echo -e "  ${DIM}  Hikvision: /Streaming/Channels/101 (main), /Streaming/Channels/102 (sub)${NC}" > /dev/tty
-    echo -e "  ${DIM}  Dahua:     /cam/realmonitor?channel=1&subtype=0 (main), subtype=1 (sub)${NC}" > /dev/tty
-    echo -e "  ${DIM}  Reolink:   /h264Preview_01_main (main), /h264Preview_01_sub (sub)${NC}" > /dev/tty
-    echo "" > /dev/tty
+    tty_echo "  ${DIM}Vanliga RTSP-paths:${NC}"
+    tty_echo "  ${DIM}  Hikvision: /Streaming/Channels/101 (main), /Streaming/Channels/102 (sub)${NC}"
+    tty_echo "  ${DIM}  Dahua:     /cam/realmonitor?channel=1&subtype=0 (main), subtype=1 (sub)${NC}"
+    tty_echo "  ${DIM}  Reolink:   /h264Preview_01_main (main), /h264Preview_01_sub (sub)${NC}"
+    tty_echo ""
 fi
 
 # ============================================================
@@ -197,12 +197,12 @@ declare -a CAM_DETECT_FPS=()
 declare -a CAM_TYPES=()
 declare -a CAM_BRANDS=()
 
-echo -e "\n  ${BOLD}Hur vill du lägga till kameror?${NC}" > /dev/tty
-echo -e "  1) Skanna nätverket automatiskt (nmap)" > /dev/tty
-echo -e "  2) Ange antal kameror (fyll i IP senare i config)" > /dev/tty
-echo -e "  3) Ange IP-adresser manuellt" > /dev/tty
-echo -ne "\n  ${BOLD}Välj [1/2/3]: ${NC}" > /dev/tty
-read CAM_METHOD < /dev/tty
+tty_echo "\n  ${BOLD}Hur vill du lägga till kameror?${NC}"
+tty_echo "  1) Skanna nätverket automatiskt (nmap)"
+tty_echo "  2) Ange antal kameror (fyll i IP senare i config)"
+tty_echo "  3) Ange IP-adresser manuellt"
+tty_printf "\n  ${BOLD}Välj [1/2/3]: ${NC}"
+tty_read CAM_METHOD
 
 case "$CAM_METHOD" in
     1)
@@ -288,18 +288,18 @@ fi
 # ============================================================
 msg_header "Steg 3: Namnge kameror"
 
-echo -e "\n  ${CYAN}╔════════════════════════════════════════════════════════════╗${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC} ${BOLD}Kameratyper:${NC}                                              ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC}                                                            ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC}  ${BOLD}single${NC} = En kamera per enhet (vanligast)                  ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC}          Använder streamprofile=main/detect                 ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC}                                                            ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC}  ${BOLD}multi${NC}  = Flera kanaler per enhet (t.ex. Axis P3265-LVE)   ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC}          Använder camera=1,2,3 med resolution-parametrar    ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}╚════════════════════════════════════════════════════════════╝${NC}\n" > /dev/tty
+tty_echo "\n  ${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
+tty_echo "  ${CYAN}║${NC} ${BOLD}Kameratyper:${NC}                                              ${CYAN}║${NC}"
+tty_echo "  ${CYAN}║${NC}                                                            ${CYAN}║${NC}"
+tty_echo "  ${CYAN}║${NC}  ${BOLD}single${NC} = En kamera per enhet (vanligast)                  ${CYAN}║${NC}"
+tty_echo "  ${CYAN}║${NC}          Använder streamprofile=main/detect                 ${CYAN}║${NC}"
+tty_echo "  ${CYAN}║${NC}                                                            ${CYAN}║${NC}"
+tty_echo "  ${CYAN}║${NC}  ${BOLD}multi${NC}  = Flera kanaler per enhet (t.ex. Axis P3265-LVE)   ${CYAN}║${NC}"
+tty_echo "  ${CYAN}║${NC}          Använder camera=1,2,3 med resolution-parametrar    ${CYAN}║${NC}"
+tty_echo "  ${CYAN}╚════════════════════════════════════════════════════════════╝${NC}\n"
 
 for ((i=0; i<${#CAM_IPS[@]}; i++)); do
-    echo -e "\n  ${BOLD}── Kamera $((i+1))/${#CAM_IPS[@]} (${CAM_IPS[$i]}) ──${NC}" > /dev/tty
+    tty_echo "\n  ${BOLD}── Kamera $((i+1))/${#CAM_IPS[@]} (${CAM_IPS[$i]}) ──${NC}"
     
     # Namn
     DEFAULT_NAME="kamera_$((i+1))"
@@ -351,22 +351,22 @@ done
 # ============================================================
 msg_header "Steg 4: Credentials"
 
-echo -e "\n  Frigate ansluter till kamerorna via RTSP." > /dev/tty
-echo -e "  Du behöver en användare på kamerorna med Viewer/Operator-behörighet.\n" > /dev/tty
+tty_echo "\n  Frigate ansluter till kamerorna via RTSP."
+tty_echo "  Du behöver en användare på kamerorna med Viewer/Operator-behörighet.\n"
 
 RTSP_USER=$(ask_string "RTSP-användarnamn (samma för alla kameror)" "${SERVICE_USER:-frigate}")
 RTSP_PASS=$(ask_string "RTSP-lösenord" "${SHARED_PASSWORD}" "true")
 
-echo "" > /dev/tty
-echo -e "  ${CYAN}╔════════════════════════════════════════════════════════════╗${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC} ${BOLD}MQTT — Frigate → Home Assistant${NC}                             ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}╠════════════════════════════════════════════════════════════╣${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC}  MQTT-brokern (Mosquitto) körs som add-on i HA.            ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC}  Om HA inte är klar ännu: ange credentials nu, konfigurera ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC}  Mosquitto i HA senare. Frigate startar ändå men loggar     ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC}  'MQTT connection failed' tills brokern är igång.           ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}╚════════════════════════════════════════════════════════════╝${NC}" > /dev/tty
-echo "" > /dev/tty
+tty_echo ""
+tty_echo "  ${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
+tty_echo "  ${CYAN}║${NC} ${BOLD}MQTT — Frigate → Home Assistant${NC}                             ${CYAN}║${NC}"
+tty_echo "  ${CYAN}╠════════════════════════════════════════════════════════════╣${NC}"
+tty_echo "  ${CYAN}║${NC}  MQTT-brokern (Mosquitto) körs som add-on i HA.            ${CYAN}║${NC}"
+tty_echo "  ${CYAN}║${NC}  Om HA inte är klar ännu: ange credentials nu, konfigurera ${CYAN}║${NC}"
+tty_echo "  ${CYAN}║${NC}  Mosquitto i HA senare. Frigate startar ändå men loggar     ${CYAN}║${NC}"
+tty_echo "  ${CYAN}║${NC}  'MQTT connection failed' tills brokern är igång.           ${CYAN}║${NC}"
+tty_echo "  ${CYAN}╚════════════════════════════════════════════════════════════╝${NC}"
+tty_echo ""
 
 MQTT_HOST=$(ask_string "MQTT-host (din HA-IP, Mosquitto körs där)" "${NETWORK_PREFIX}.${IP_HA}")
 MQTT_USER=$(ask_string "MQTT-användarnamn (skapa denna i HA → Användare)" "${SERVICE_USER:-frigate}")
@@ -391,19 +391,19 @@ fi
 # ============================================================
 msg_header "Steg 5: Google Gemini AI (valfritt)"
 
-echo -e "\n  ${CYAN}╔════════════════════════════════════════════════════════════╗${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC} ${BOLD}Google Gemini AI-integration${NC}                                ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC}                                                            ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC} Frigate kan använda Gemini för att:                         ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC}   • Generera beskrivningar av händelser                    ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC}   • Svara på frågor om vad som hänt                        ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC}   • Klassificera objekt mer exakt                          ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC}                                                            ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC} Skapa en gratis API-nyckel:                                ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC}   https://aistudio.google.com/app/apikey                   ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC}                                                            ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}║${NC} Du kan lägga till detta senare om du vill.                 ${CYAN}║${NC}" > /dev/tty
-echo -e "  ${CYAN}╚════════════════════════════════════════════════════════════╝${NC}\n" > /dev/tty
+tty_echo "\n  ${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
+tty_echo "  ${CYAN}║${NC} ${BOLD}Google Gemini AI-integration${NC}                                ${CYAN}║${NC}"
+tty_echo "  ${CYAN}║${NC}                                                            ${CYAN}║${NC}"
+tty_echo "  ${CYAN}║${NC} Frigate kan använda Gemini för att:                         ${CYAN}║${NC}"
+tty_echo "  ${CYAN}║${NC}   • Generera beskrivningar av händelser                    ${CYAN}║${NC}"
+tty_echo "  ${CYAN}║${NC}   • Svara på frågor om vad som hänt                        ${CYAN}║${NC}"
+tty_echo "  ${CYAN}║${NC}   • Klassificera objekt mer exakt                          ${CYAN}║${NC}"
+tty_echo "  ${CYAN}║${NC}                                                            ${CYAN}║${NC}"
+tty_echo "  ${CYAN}║${NC} Skapa en gratis API-nyckel:                                ${CYAN}║${NC}"
+tty_echo "  ${CYAN}║${NC}   https://aistudio.google.com/app/apikey                   ${CYAN}║${NC}"
+tty_echo "  ${CYAN}║${NC}                                                            ${CYAN}║${NC}"
+tty_echo "  ${CYAN}║${NC} Du kan lägga till detta senare om du vill.                 ${CYAN}║${NC}"
+tty_echo "  ${CYAN}╚════════════════════════════════════════════════════════════╝${NC}\n"
 
 GEMINI_KEY=""
 if ask_yes_no "Vill du konfigurera Google Gemini AI nu?" "N"; then
@@ -620,7 +620,7 @@ msg_ok ".env-fil genererad!"
 # ============================================================
 # STEG 9: Pusha till Frigate-container (om den är redo)
 # ============================================================
-echo "" > /dev/tty
+tty_echo ""
 
 # Visa sammanfattning
 TOTAL_CAMS=0
@@ -632,17 +632,17 @@ for ((i=0; i<${#CAM_IPS[@]}; i++)); do
     fi
 done
 
-echo -e "  ${GREEN}╔════════════════════════════════════════════════════════════╗${NC}" > /dev/tty
-echo -e "  ${GREEN}║${NC} ${BOLD}Sammanfattning${NC}                                              ${GREEN}║${NC}" > /dev/tty
-echo -e "  ${GREEN}╠════════════════════════════════════════════════════════════╣${NC}" > /dev/tty
-printf "  ${GREEN}║${NC}  Antal kameravyer:  ${BOLD}%-38s${NC} ${GREEN}║${NC}\n" "$TOTAL_CAMS" > /dev/tty
-printf "  ${GREEN}║${NC}  RTSP-användare:    ${BOLD}%-38s${NC} ${GREEN}║${NC}\n" "$RTSP_USER" > /dev/tty
-printf "  ${GREEN}║${NC}  MQTT-host:         ${BOLD}%-38s${NC} ${GREEN}║${NC}\n" "$MQTT_HOST" > /dev/tty
-printf "  ${GREEN}║${NC}  MQTT-status:       ${BOLD}%-38s${NC} ${GREEN}║${NC}\n" "$([ "$MQTT_STATUS" == "reachable" ] && echo "Ansluten" || echo "Ej nåbar (konfigureras i HA)")" > /dev/tty
-printf "  ${GREEN}║${NC}  Gemini AI:         ${BOLD}%-38s${NC} ${GREEN}║${NC}\n" "$([ -n "$GEMINI_KEY" ] && echo "Aktiverad" || echo "Ej konfigurerad")" > /dev/tty
-echo -e "  ${GREEN}╚════════════════════════════════════════════════════════════╝${NC}" > /dev/tty
+tty_echo "  ${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
+tty_echo "  ${GREEN}║${NC} ${BOLD}Sammanfattning${NC}                                              ${GREEN}║${NC}"
+tty_echo "  ${GREEN}╠════════════════════════════════════════════════════════════╣${NC}"
+tty_printf "  ${GREEN}║${NC}  Antal kameravyer:  ${BOLD}%-38s${NC} ${GREEN}║${NC}\n" "$TOTAL_CAMS"
+tty_printf "  ${GREEN}║${NC}  RTSP-användare:    ${BOLD}%-38s${NC} ${GREEN}║${NC}\n" "$RTSP_USER"
+tty_printf "  ${GREEN}║${NC}  MQTT-host:         ${BOLD}%-38s${NC} ${GREEN}║${NC}\n" "$MQTT_HOST"
+printf "  ${GREEN}║${NC}  MQTT-status:       ${BOLD}%-38s${NC} ${GREEN}║${NC}\n" "$([ "$MQTT_STATUS" == "reachable" ] && tty_echo "Ansluten" || echo "Ej nåbar (konfigureras i HA)")"
+printf "  ${GREEN}║${NC}  Gemini AI:         ${BOLD}%-38s${NC} ${GREEN}║${NC}\n" "$([ -n "$GEMINI_KEY" ] && tty_echo "Aktiverad" || echo "Ej konfigurerad")"
+tty_echo "  ${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"
 
-echo "" > /dev/tty
+tty_echo ""
 
 if [ "$FRIGATE_READY" == "true" ]; then
     if ask_yes_no "Vill du pusha konfigurationen till Frigate-containern (CT ${IP_FRIGATE}) nu?" "Y"; then
@@ -661,7 +661,7 @@ if [ "$FRIGATE_READY" == "true" ]; then
             
             # MQTT-status varning
             if [ "$MQTT_STATUS" == "unreachable" ]; then
-                echo "" > /dev/tty
+                tty_echo ""
                 msg_warn "MQTT-broker är inte nåbar ännu."
                 msg_info "Frigate fungerar lokalt men skickar INTE händelser till HA."
                 msg_info "Åtgärd: Installera Mosquitto add-on i HA och skapa användare '${MQTT_USER}'."
@@ -699,43 +699,43 @@ rm -f "$CONFIG_OUTPUT" "$ENV_OUTPUT"
 # ============================================================
 # STEG 10: Instruktioner
 # ============================================================
-echo "" > /dev/tty
-echo -e "  ${YELLOW}════════════════════════════════════════════════════════════════${NC}" > /dev/tty
-echo -e "  ${BOLD}VIKTIGT: Gör detta på varje kamera (om du inte redan gjort det)${NC}" > /dev/tty
-echo -e "  ${YELLOW}════════════════════════════════════════════════════════════════${NC}" > /dev/tty
-echo -e "" > /dev/tty
-echo -e "  Logga in på varje kameras webbgränssnitt och:" > /dev/tty
-echo -e "" > /dev/tty
-echo -e "  ${BOLD}1. Skapa RTSP-användare på varje kamera:${NC}" > /dev/tty
-echo -e "     System → Users → Lägg till:" > /dev/tty
-echo -e "     - Användarnamn: ${GREEN}${RTSP_USER}${NC}" > /dev/tty
-echo -e "     - Lösenord: (det du angav som gemensamt lösenord)" > /dev/tty
-echo -e "     - Roll: ${GREEN}Viewer${NC} (behöver bara läsa video)" > /dev/tty
-echo -e "" > /dev/tty
-echo -e "  ${BOLD}2. Skapa stream-profiler (Axis-kameror):${NC}" > /dev/tty
-echo -e "     Video → Stream profiles:" > /dev/tty
-echo -e "" > /dev/tty
-echo -e "     Profil '${GREEN}main${NC}' (inspelning + livevy):" > /dev/tty
-echo -e "       Codec: ${BOLD}H.265${NC}, Resolution: Max (t.ex. 2592×1944)" > /dev/tty
-echo -e "       Frame rate: 15, Compression: 30" > /dev/tty
-echo -e "" > /dev/tty
-echo -e "     Profil '${GREEN}detect${NC}' (AI-detektering):" > /dev/tty
-echo -e "       Codec: ${BOLD}H.265${NC}, Resolution: 1280×960 (4:3)" > /dev/tty
-echo -e "       Frame rate: 5, Compression: 30" > /dev/tty
-echo -e "" > /dev/tty
+tty_echo ""
+tty_echo "  ${YELLOW}════════════════════════════════════════════════════════════════${NC}"
+tty_echo "  ${BOLD}VIKTIGT: Gör detta på varje kamera (om du inte redan gjort det)${NC}"
+tty_echo "  ${YELLOW}════════════════════════════════════════════════════════════════${NC}"
+tty_echo ""
+tty_echo "  Logga in på varje kameras webbgränssnitt och:"
+tty_echo ""
+tty_echo "  ${BOLD}1. Skapa RTSP-användare på varje kamera:${NC}"
+tty_echo "     System → Users → Lägg till:"
+tty_echo "     - Användarnamn: ${GREEN}${RTSP_USER}${NC}"
+tty_echo "     - Lösenord: (det du angav som gemensamt lösenord)"
+tty_echo "     - Roll: ${GREEN}Viewer${NC} (behöver bara läsa video)"
+tty_echo ""
+tty_echo "  ${BOLD}2. Skapa stream-profiler (Axis-kameror):${NC}"
+tty_echo "     Video → Stream profiles:"
+tty_echo ""
+tty_echo "     Profil '${GREEN}main${NC}' (inspelning + livevy):"
+tty_echo "       Codec: ${BOLD}H.265${NC}, Resolution: Max (t.ex. 2592×1944)"
+tty_echo "       Frame rate: 15, Compression: 30"
+tty_echo ""
+tty_echo "     Profil '${GREEN}detect${NC}' (AI-detektering):"
+tty_echo "       Codec: ${BOLD}H.265${NC}, Resolution: 1280×960 (4:3)"
+tty_echo "       Frame rate: 5, Compression: 30"
+tty_echo ""
 
 # Icke-Axis-varning
 if [ "$CAM_BRAND" == "2" ] || [ "$CAM_BRAND" == "3" ]; then
-    echo -e "  ${BOLD}3. Icke-Axis-kameror:${NC}" > /dev/tty
-    echo -e "     Redigera config.yml och byt RTSP-path till rätt för ditt märke." > /dev/tty
-    echo -e "     Sök efter 'MAIN_STREAM_PATH' och 'SUB_STREAM_PATH' i filen." > /dev/tty
-    echo -e "" > /dev/tty
+    tty_echo "  ${BOLD}3. Icke-Axis-kameror:${NC}"
+    tty_echo "     Redigera config.yml och byt RTSP-path till rätt för ditt märke."
+    tty_echo "     Sök efter 'MAIN_STREAM_PATH' och 'SUB_STREAM_PATH' i filen."
+    tty_echo ""
 fi
 
-echo -e "  ${BOLD}Nästa steg:${NC}" > /dev/tty
-echo -e "     - Öppna Frigate UI: http://${FRIGATE_IP}:5000" > /dev/tty
-echo -e "     - Verifiera att alla kameror syns" > /dev/tty
-echo -e "     - Rita zoner och masker i UI:t" > /dev/tty
-echo -e "  ${YELLOW}════════════════════════════════════════════════════════════════${NC}" > /dev/tty
+tty_echo "  ${BOLD}Nästa steg:${NC}"
+tty_echo "     - Öppna Frigate UI: http://${FRIGATE_IP}:5000"
+tty_echo "     - Verifiera att alla kameror syns"
+tty_echo "     - Rita zoner och masker i UI:t"
+tty_echo "  ${YELLOW}════════════════════════════════════════════════════════════════${NC}"
 
 msg_ok "Kamera-konfiguration klar!"

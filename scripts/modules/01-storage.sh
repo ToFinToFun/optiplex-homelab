@@ -52,7 +52,8 @@ else
         msg_info "(headless) Väljer automatiskt: $TARGET_DISK"
     else
         while true; do
-            read -p "Vilken disk vill du använda för Frigate? (0-$((${#DISK_ARRAY[@]}-1)) eller Enter för att skippa): " disk_choice < /dev/tty
+            tty_printf "Vilken disk vill du använda för Frigate? (0-$((${#DISK_ARRAY[@]}-1)) eller Enter för att skippa): "
+            tty_read disk_choice
             if [ -z "$disk_choice" ]; then
                 msg_skip "Hoppar över disk-konfiguration."
                 exit 0
@@ -256,13 +257,13 @@ if pct status "$FRIGATE_ID" &>/dev/null; then
                 msg_info "(headless) Flyttar befintliga inspelningar till nya disken..."
                 MIGRATE_ACTION="move"
             else
-                echo "  Vad vill du göra med befintliga inspelningar?" > /dev/tty
-                echo "" > /dev/tty
-                echo "    1) Flytta till nya disken (behåll allt, frigör OS-disk)" > /dev/tty
-                echo "    2) Radera gamla inspelningar (frigör OS-disk, börja från noll)" > /dev/tty
-                echo "    3) Låt ligga (nya inspelningar på ny disk, gamla kvar på OS-disk)" > /dev/tty
-                echo "" > /dev/tty
-                read -p "  Val [1-3] (default: 1): " migrate_choice < /dev/tty
+                tty_echo "  Vad vill du göra med befintliga inspelningar?"
+                tty_echo ""
+                tty_echo "    1) Flytta till nya disken (behåll allt, frigör OS-disk)"
+                tty_echo "    2) Radera gamla inspelningar (frigör OS-disk, börja från noll)"
+                tty_echo "    3) Låt ligga (nya inspelningar på ny disk, gamla kvar på OS-disk)"
+                tty_echo ""
+                tty_printf "  Val [1-3] (default: 1): "; tty_read migrate_choice
                 case "${migrate_choice:-1}" in
                     1) MIGRATE_ACTION="move" ;;
                     2) MIGRATE_ACTION="delete" ;;

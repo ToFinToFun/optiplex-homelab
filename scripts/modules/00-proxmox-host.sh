@@ -108,7 +108,7 @@ if [ "$RUN_BIOS_CONFIG" != "true" ]; then
     # Hoppa över BIOS-config, gå vidare till hostname etc.
     true
 else
-    echo "" > /dev/tty
+    tty_echo ""
     print_banner "BIOS-optimering (Dell Command Configure)" \
 "Dell OptiPlex XE4 kan konfigureras direkt från Linux
 utan att du behöver gå in i BIOS manuellt.
@@ -369,16 +369,16 @@ POSTINST
             msg_info "Dessa kan behöva ställas in manuellt i BIOS (F2 vid boot)."
         fi
         
-        echo "" > /dev/tty
-        echo -e "  ${YELLOW}OBS: BIOS-ändringarna träder i kraft vid nästa omstart.${NC}" > /dev/tty
-        echo -e "  ${YELLOW}En reboot rekommenderas efter att hela installationen är klar.${NC}" > /dev/tty
-        echo "" > /dev/tty
+        tty_echo ""
+        tty_echo "  ${YELLOW}OBS: BIOS-ändringarna träder i kraft vid nästa omstart.${NC}"
+        tty_echo "  ${YELLOW}En reboot rekommenderas efter att hela installationen är klar.${NC}"
+        tty_echo ""
         
         set_state bios_configured true
         
-        echo "" > /dev/tty
-        echo -e "  ${GREEN}BIOS-inställningarna är sparade men kräver en omstart.${NC}" > /dev/tty
-        echo "" > /dev/tty
+        tty_echo ""
+        tty_echo "  ${GREEN}BIOS-inställningarna är sparade men kräver en omstart.${NC}"
+        tty_echo ""
         if [ "$HEADLESS" == "true" ]; then
             # Headless: aldrig reboot mitt i installationen
             set_state needs_reboot true
@@ -407,10 +407,10 @@ if [ -n "$NODE_HOSTNAME" ] && [ "$NODE_HOSTNAME" != "$(hostname)" ]; then
     msg_info "Nuvarande hostname: ${CURRENT_HOSTNAME}"
     msg_info "Önskat hostname: ${NODE_HOSTNAME}"
     
-    echo -e "\n  > ${BOLD}Varför byta hostname?${NC}" > /dev/tty
-    echo -e "    Hostnamet identifierar din server i nätverket och i Proxmox." > /dev/tty
-    echo -e "    OBS: Att byta hostname på en Proxmox-nod som redan har VMs/CTs" > /dev/tty
-    echo -e "    kan kräva extra steg. Det är enklast att göra det tidigt.\n" > /dev/tty
+    tty_echo "\n  > ${BOLD}Varför byta hostname?${NC}"
+    tty_echo "    Hostnamet identifierar din server i nätverket och i Proxmox."
+    tty_echo "    OBS: Att byta hostname på en Proxmox-nod som redan har VMs/CTs"
+    tty_echo "    kan kräva extra steg. Det är enklast att göra det tidigt.\n"
     
     if ask_yes_no "Vill du byta hostname till '${NODE_HOSTNAME}'?" "Y"; then
         hostnamectl set-hostname "$NODE_HOSTNAME"
