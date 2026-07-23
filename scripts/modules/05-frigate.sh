@@ -71,47 +71,13 @@ fi
 pct start "${IP_FRIGATE}"
 sleep 5
 
-msg_info "Installerar Docker och Intel drivrutiner..."
+msg_info "Installerar Docker och beroenden..."
 pct exec "${IP_FRIGATE}" -- bash -c "apt-get update -qq > /dev/null 2>&1"
 pct exec "${IP_FRIGATE}" -- bash -c "apt-get install -y -qq curl ca-certificates gnupg python3 > /dev/null 2>&1"
 
-# Aktivera non-free och non-free-firmware repos (krävs för Intel VA-driver)
-msg_info "Aktiverar non-free repos för Intel GPU-driver..."
-pct exec "${IP_FRIGATE}" -- bash -c '
-    # DEB822-format (Debian 13 default)
-    if [ -f /etc/apt/sources.list.d/debian.sources ]; then
-        # Lägg till non-free och non-free-firmware om de saknas
-        if ! grep -q "non-free" /etc/apt/sources.list.d/debian.sources; then
-            sed -i "/^Components:/s/$/ non-free non-free-firmware/" /etc/apt/sources.list.d/debian.sources
-        fi
-        # Lägg till contrib om det saknas
-        if ! grep -q "contrib" /etc/apt/sources.list.d/debian.sources; then
-            sed -i "/^Components:/s/$/ contrib/" /etc/apt/sources.list.d/debian.sources
-        fi
-    fi
-    # Legacy format (sources.list)
-    if [ -f /etc/apt/sources.list ] && ! grep -q "non-free" /etc/apt/sources.list; then
-        sed -i "s/main$/main contrib non-free non-free-firmware/" /etc/apt/sources.list
-    fi
-'
-pct exec "${IP_FRIGATE}" -- bash -c "apt-get update -qq > /dev/null 2>&1"
-
-# Intel media driver (non-free) — krävs för HW-acceleration
-if [ "$IGPU_OK" == "true" ]; then
-    msg_info "Installerar Intel VA-driver (intel-media-va-driver-non-free)..."
-    VA_OUTPUT=$(pct exec "${IP_FRIGATE}" -- bash -c "apt-get install -y intel-media-va-driver-non-free vainfo 2>&1")
-    VA_EXIT=$?
-    if [ $VA_EXIT -ne 0 ]; then
-        msg_warn "Intel VA-driver kunde inte installeras:"
-        echo "$VA_OUTPUT" | tail -5
-        msg_info "Frigate körs ändå men utan HW-acceleration."
-        msg_info "Felsök: pct exec ${IP_FRIGATE} -- apt-get install -y intel-media-va-driver-non-free"
-    else
-        msg_ok "Intel VA-driver installerad"
-    fi
-else
-    msg_info "Hoppar över VA-driver (iGPU ej tillgänglig på hosten)."
-fi
+# OBS: VA-driver (intel-media-va-driver-non-free) behövs INTE i LXC:en.
+# Frigate's Docker-image buntar sin egen VA-driver (byggs från source).
+# Det enda vi behöver är att /dev/dri/renderD128 passas genom till containern.
 
 # Docker installation
 pct exec "${IP_FRIGATE}" -- bash -c "install -m 0755 -d /etc/apt/keyrings"
@@ -286,10 +252,15 @@ else
     msg_info "Felsök: pct exec ${IP_FRIGATE} -- docker logs frigate --tail 30"
 fi
 
-# iGPU-verifiering
-if pct exec "${IP_FRIGATE}" -- vainfo 2>&1 | grep -qi "intel\|iHD"; then
-    msg_ok "iGPU-passthrough fungerar (vainfo OK)"
+# iGPU-verifiering: kolla att /dev/dri/renderD128 finns inuti containern
+if pct exec "${IP_FRIGATE}" -- test -c /dev/dri/renderD128 2>/dev/null; then
+    msg_ok "iGPU-passthrough fungerar (/dev/dri/renderD128 tillgänglig i CT)"
 else
-    msg_warn "iGPU-passthrough verkar ha problem. Kolla BIOS (VT-d, ReBAR)."
+    if [ "$IGPU_OK" == "true" ]; then
+        msg_warn "iGPU-passthrough konfigurerad men /dev/dri/renderD128 syns inte i containern."
+        msg_info "Prova: pct reboot ${IP_FRIGATE}"
+    else
+        msg_info "Ingen iGPU — Frigate kör med CPU-detektion."
+    fi
 fi
 msg_ok "Frigate ${FRIGATE_TAG} installerat! UI: http://${CT_IP}:5000"
