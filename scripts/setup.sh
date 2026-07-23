@@ -52,6 +52,7 @@ PREFLIGHT_OK=true
 for fn in msg_info msg_ok msg_warn msg_err msg_skip show_progress ask_yes_no ask_string \
           load_config save_config get_state set_state \
           check_is_proxmox check_id_exists get_debian_template find_storage_pool \
+          resolve_ct_id resolve_vm_id find_ct_by_hostname find_vm_by_name \
           detect_network confirm_network \
           rollback_register rollback_offer rollback_clear; do
     if ! type "$fn" &>/dev/null; then
@@ -451,14 +452,14 @@ STATUS_NPMCONF="saknas"
 STATUS_RDP="saknas"
 
 [ "$(get_state host_configured)" == "true" ] && STATUS_HOST="klar"
-check_id_exists $IP_HA 2>/dev/null && STATUS_HA="installerad"
-check_id_exists $IP_CLOUDFLARED 2>/dev/null && STATUS_CF="installerad"
-check_id_exists $IP_NPM 2>/dev/null && STATUS_NPM="installerad"
-check_id_exists $IP_FRIGATE 2>/dev/null && STATUS_FRIGATE="installerad"
+[ -n "$(resolve_vm_id "ha" "$IP_HA")" ] && STATUS_HA="installerad"
+[ -n "$(resolve_ct_id "cloudflared" "$IP_CLOUDFLARED")" ] && STATUS_CF="installerad"
+[ -n "$(resolve_ct_id "npm" "$IP_NPM")" ] && STATUS_NPM="installerad"
+[ -n "$(resolve_ct_id "frigate" "$IP_FRIGATE")" ] && STATUS_FRIGATE="installerad"
 [ "$(get_state cameras_configured)" == "true" ] && STATUS_CAMERAS="klar"
 [ "$(get_state cfdns_configured)" == "true" ] && STATUS_CFDNS="klar"
 [ "$(get_state npm_configured)" == "true" ] && STATUS_NPMCONF="klar"
-(check_id_exists ${IP_GUACAMOLE:-107} 2>/dev/null || check_id_exists ${IP_DESKTOP:-108} 2>/dev/null) && STATUS_RDP="installerad"
+([ -n "$(resolve_ct_id "guacamole" "${IP_GUACAMOLE:-107}")" ] || [ -n "$(resolve_ct_id "desktop" "${IP_DESKTOP:-108}")" ]) && STATUS_RDP="installerad"
 
 # Räkna hur många som är klara
 DONE_COUNT=0
@@ -576,32 +577,33 @@ fi
 
 # Säkerhetskontroll: Om CT/VM redan finns och DO_*=y, fråga om de vill ÅTERSKAPA
 # (skyddar mot att av misstag radera en fungerande container)
-if [ "$DO_HA" == "y" ] && check_id_exists $IP_HA 2>/dev/null; then
-    msg_warn "VM $IP_HA (Home Assistant) finns redan och körs."
+HA_FOUND=$(resolve_vm_id "ha" "$IP_HA")
+if [ "$DO_HA" == "y" ] && [ -n "$HA_FOUND" ]; then
+    msg_warn "VM ${HA_FOUND} (Home Assistant) finns redan och körs."
     if ! ask_yes_no "Vill du RADERA och återskapa den? (ALL DATA FÖRSVINNER)" "N"; then
         DO_HA="n"
         msg_skip "Behåller befintlig HA-VM."
     fi
 fi
-
-if [ "$DO_CF" == "y" ] && check_id_exists $IP_CLOUDFLARED 2>/dev/null; then
-    msg_warn "CT $IP_CLOUDFLARED (Cloudflared) finns redan."
+CF_FOUND=$(resolve_ct_id "cloudflared" "$IP_CLOUDFLARED")
+if [ "$DO_CF" == "y" ] && [ -n "$CF_FOUND" ]; then
+    msg_warn "CT ${CF_FOUND} (Cloudflared) finns redan."
     if ! ask_yes_no "Vill du RADERA och återskapa den?" "N"; then
         DO_CF="n"
         msg_skip "Behåller befintlig Cloudflared-container."
     fi
 fi
-
-if [ "$DO_NPM" == "y" ] && check_id_exists $IP_NPM 2>/dev/null; then
-    msg_warn "CT $IP_NPM (NPM) finns redan."
+NPM_FOUND=$(resolve_ct_id "npm" "$IP_NPM")
+if [ "$DO_NPM" == "y" ] && [ -n "$NPM_FOUND" ]; then
+    msg_warn "CT ${NPM_FOUND} (NPM) finns redan."
     if ! ask_yes_no "Vill du RADERA och återskapa den?" "N"; then
         DO_NPM="n"
         msg_skip "Behåller befintlig NPM-container."
     fi
 fi
-
-if [ "$DO_FRIGATE" == "y" ] && check_id_exists $IP_FRIGATE 2>/dev/null; then
-    msg_warn "CT $IP_FRIGATE (Frigate) finns redan."
+FRIGATE_FOUND=$(resolve_ct_id "frigate" "$IP_FRIGATE")
+if [ "$DO_FRIGATE" == "y" ] && [ -n "$FRIGATE_FOUND" ]; then
+    msg_warn "CT ${FRIGATE_FOUND} (Frigate) finns redan."
     if [ "$HEADLESS" == "true" ]; then
         # Headless: uppgradera/fixa automatiskt, radera aldrig
         DO_FRIGATE="upgrade"
@@ -624,20 +626,21 @@ if [ "$DO_FRIGATE" == "y" ] && check_id_exists $IP_FRIGATE 2>/dev/null; then
 fi
 
 # Aktivera tunnel på befintlig Cloudflared-container om token nu finns men tunnel inte är aktiv
-if [ "$DO_CF" == "n" ] && [ -n "$CF_TUNNEL_TOKEN" ] && check_id_exists $IP_CLOUDFLARED 2>/dev/null; then
+CF_CT=$(resolve_ct_id "cloudflared" "$IP_CLOUDFLARED")
+if [ "$DO_CF" == "n" ] && [ -n "$CF_TUNNEL_TOKEN" ] && [ -n "$CF_CT" ]; then
     # Kolla om cloudflared service redan kör
-    CF_RUNNING=$(pct exec $IP_CLOUDFLARED -- systemctl is-active cloudflared 2>/dev/null || echo "inactive")
+    CF_RUNNING=$(pct exec $CF_CT -- systemctl is-active cloudflared 2>/dev/null || echo "inactive")
     if [ "$CF_RUNNING" != "active" ]; then
         tty_echo ""
-        msg_info "Cloudflared-containern finns men tunneln är inte aktiv."
+        msg_info "Cloudflared-containern (CT ${CF_CT}) finns men tunneln är inte aktiv."
         if ask_yes_no "Vill du aktivera Cloudflare Tunnel med din token nu?" "Y"; then
-            msg_info "Installerar tunnel-token i CT ${IP_CLOUDFLARED}..."
-            pct exec ${IP_CLOUDFLARED} -- bash -c "cloudflared service install ${CF_TUNNEL_TOKEN}" > /dev/null 2>&1
-            if pct exec ${IP_CLOUDFLARED} -- systemctl is-active cloudflared &>/dev/null; then
+            msg_info "Installerar tunnel-token i CT ${CF_CT}..."
+            pct exec ${CF_CT} -- bash -c "cloudflared service install ${CF_TUNNEL_TOKEN}" > /dev/null 2>&1
+            if pct exec ${CF_CT} -- systemctl is-active cloudflared &>/dev/null; then
                 msg_ok "Cloudflare Tunnel aktiverad och kör!"
             else
                 msg_warn "Tunnel-tjänsten startade inte. Kontrollera token och kör:"
-                tty_echo "  ${YELLOW}pct exec ${IP_CLOUDFLARED} -- cloudflared service install <TOKEN>${NC}"
+                tty_echo "  ${YELLOW}pct exec ${CF_CT} -- cloudflared service install <TOKEN>${NC}"
             fi
         fi
     fi
@@ -852,11 +855,19 @@ fi
 if [ "$DO_FRIGATE" == "upgrade" ]; then
     print_banner "Frigate Uppgradering" "Uppdaterar Frigate-image till senaste 0.18.x — behåller config och inspelningar."
     
-    CT_IP="${NETWORK_PREFIX}.${IP_FRIGATE}"
+    # Hitta Frigate CT via hostname (robust — fungerar även om ID ändrats)
+    FRIGATE_CT=$(resolve_ct_id "frigate" "$IP_FRIGATE")
+    if [ -z "$FRIGATE_CT" ]; then
+        msg_err "Kunde inte hitta Frigate-container (varken via hostname 'frigate' eller ID ${IP_FRIGATE})!"
+        msg_info "Kontrollera: pct list"
+    else
+    [ "$FRIGATE_CT" != "$IP_FRIGATE" ] && msg_info "Frigate hittad via hostname på CT ${FRIGATE_CT} (config säger ${IP_FRIGATE})"
+    CT_IP=$(pct exec "${FRIGATE_CT}" -- hostname -I 2>/dev/null | awk '{print $1}')
+    [ -z "$CT_IP" ] && CT_IP="${NETWORK_PREFIX}.${IP_FRIGATE}"
     
     # Hitta senaste version (samma logik som i module 05)
     msg_info "Söker senaste Frigate 0.18-version..."
-    NEW_TAG=$(pct exec "${IP_FRIGATE}" -- bash -c '
+    NEW_TAG=$(pct exec "${FRIGATE_CT}" -- bash -c '
         curl -fsSL "https://api.github.com/repos/blakeblackshear/frigate/releases?per_page=20" 2>/dev/null | \
         python3 -c "
 import json,sys
@@ -872,7 +883,7 @@ for r in releases:
     [ -z "$NEW_TAG" ] && NEW_TAG="0.18.0-beta1"
     
     # Kolla nuvarande version
-    CURRENT_TAG=$(pct exec "${IP_FRIGATE}" -- bash -c \
+    CURRENT_TAG=$(pct exec "${FRIGATE_CT}" -- bash -c \
         "grep -oP 'image:.*frigate:\K[^\"]+' /opt/frigate/docker-compose.yml 2>/dev/null || echo 'okänd'" 2>/dev/null)
     
     msg_info "Nuvarande: ${CURRENT_TAG:-okänd}"
@@ -881,13 +892,13 @@ for r in releases:
     if [ "$CURRENT_TAG" == "$NEW_TAG" ]; then
         msg_ok "Frigate kör redan senaste versionen (${NEW_TAG})!"
         # Kolla ändå om den är igång
-        if ! pct exec "${IP_FRIGATE}" -- bash -c "docker ps --filter name=frigate --format '{{.Status}}'" 2>/dev/null | grep -qi "up"; then
+        if ! pct exec "${FRIGATE_CT}" -- bash -c "docker ps --filter name=frigate --format '{{.Status}}'" 2>/dev/null | grep -qi "up"; then
             msg_warn "Frigate-containern kör inte! Startar..."
-            pct exec "${IP_FRIGATE}" -- bash -c "cd /opt/frigate && docker compose up -d" 2>&1 | tail -3
+            pct exec "${FRIGATE_CT}" -- bash -c "cd /opt/frigate && docker compose up -d" 2>&1 | tail -3
         fi
     else
         msg_info "Uppdaterar docker-compose.yml till ${NEW_TAG}..."
-        pct exec "${IP_FRIGATE}" -- bash -c "
+        pct exec "${FRIGATE_CT}" -- bash -c "
             cd /opt/frigate
             # Byt image-tag i docker-compose.yml
             sed -i \"s|image: ghcr.io/blakeblackshear/frigate:.*|image: ghcr.io/blakeblackshear/frigate:${NEW_TAG}|\" docker-compose.yml
@@ -903,7 +914,7 @@ for r in releases:
     msg_info "Väntar på att Frigate startar..."
     FRIGATE_UP=false
     for i in $(seq 1 20); do
-        if pct exec "${IP_FRIGATE}" -- bash -c "curl -s -o /dev/null -w '%{http_code}' http://localhost:5000/" 2>/dev/null | grep -q "200\|301\|302"; then
+        if pct exec "${FRIGATE_CT}" -- bash -c "curl -s -o /dev/null -w '%{http_code}' http://localhost:5000/" 2>/dev/null | grep -q "200\|301\|302"; then
             FRIGATE_UP=true
             break
         fi
@@ -914,9 +925,10 @@ for r in releases:
         msg_ok "Frigate ${NEW_TAG} kör och svarar på http://${CT_IP}:5000"
     else
         msg_warn "Frigate svarar inte ännu. Felsök:"
-        msg_info "  pct exec ${IP_FRIGATE} -- docker logs frigate --tail 30"
-        pct exec "${IP_FRIGATE}" -- bash -c "docker logs frigate --tail 5" 2>&1 | head -5
+        msg_info "  pct exec ${FRIGATE_CT} -- docker logs frigate --tail 30"
+        pct exec "${FRIGATE_CT}" -- bash -c "docker logs frigate --tail 5" 2>&1 | head -5
     fi
+    fi  # end: else (CT found)
 fi
 
 # 4.7 Axis Kameror & Frigate Config

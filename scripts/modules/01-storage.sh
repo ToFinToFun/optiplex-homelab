@@ -230,9 +230,10 @@ fi
 msg_ok "Proxmox storage 'frigate-storage' registrerat"
 
 # ── Koppla till befintlig Frigate CT (om den redan finns) ──────
-FRIGATE_ID="${IP_FRIGATE:-103}"
-if pct status "$FRIGATE_ID" &>/dev/null; then
-    msg_info "Frigate CT ($FRIGATE_ID) finns redan — kopplar lagringsdisken..."
+# Hitta Frigate via hostname först, fallback till config-ID
+FRIGATE_ID=$(resolve_ct_id "frigate" "${IP_FRIGATE:-103}")
+if [ -n "$FRIGATE_ID" ]; then
+    msg_info "Frigate CT ($FRIGATE_ID) hittad — kopplar lagringsdisken..."
     
     # Kolla om mountpoint redan är satt till frigate-storage
     if pct config "$FRIGATE_ID" 2>/dev/null | grep -q "mp0.*frigate-storage"; then

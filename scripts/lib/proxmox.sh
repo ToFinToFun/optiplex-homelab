@@ -18,6 +18,53 @@ check_id_exists() {
     fi
 }
 
+# Hitta CT-ID via hostname (robust — fungerar oavsett vilket ID som användes)
+# Returnerar CT-ID om hittat, tom sträng om inte
+find_ct_by_hostname() {
+    local hostname="$1"
+    # pct list: VMID | Status | Lock | Name
+    pct list 2>/dev/null | awk -v h="$hostname" '$NF == h {print $1; exit}'
+}
+
+# Hitta VM-ID via namn
+find_vm_by_name() {
+    local name="$1"
+    qm list 2>/dev/null | awk -v n="$name" '$2 == n {print $1; exit}'
+}
+
+# Resolve CT-ID: försök hostname-lookup först, fallback till config-variabel
+# Användning: FRIGATE_ID=$(resolve_ct_id "frigate" "$IP_FRIGATE")
+resolve_ct_id() {
+    local hostname="$1"
+    local fallback_id="$2"
+    local found_id
+    
+    found_id=$(find_ct_by_hostname "$hostname")
+    if [ -n "$found_id" ]; then
+        echo "$found_id"
+    elif [ -n "$fallback_id" ] && check_id_exists "$fallback_id" 2>/dev/null; then
+        echo "$fallback_id"
+    else
+        echo ""
+    fi
+}
+
+# Resolve VM-ID: försök namn-lookup först, fallback till config-variabel
+resolve_vm_id() {
+    local name="$1"
+    local fallback_id="$2"
+    local found_id
+    
+    found_id=$(find_vm_by_name "$name")
+    if [ -n "$found_id" ]; then
+        echo "$found_id"
+    elif [ -n "$fallback_id" ] && check_id_exists "$fallback_id" 2>/dev/null; then
+        echo "$fallback_id"
+    else
+        echo ""
+    fi
+}
+
 get_debian_template() {
     # Uppdatera pveam cache om den är äldre än 7 dagar eller saknas
     if [ $(find /var/lib/pve-manager/apl-available/ -mtime +7 2>/dev/null | wc -l) -gt 0 ] || \
