@@ -77,15 +77,23 @@ pct exec "${IP_FRIGATE}" -- bash -c "apt-get install -y -qq curl ca-certificates
 
 # Aktivera non-free och non-free-firmware repos (krävs för Intel VA-driver)
 msg_info "Aktiverar non-free repos för Intel GPU-driver..."
-pct exec "${IP_FRIGATE}" -- bash -c "
-    if [ -f /etc/apt/sources.list ]; then
-        sed -i 's/main$/main contrib non-free non-free-firmware/' /etc/apt/sources.list
-    fi
+pct exec "${IP_FRIGATE}" -- bash -c '
     # DEB822-format (Debian 13 default)
     if [ -f /etc/apt/sources.list.d/debian.sources ]; then
-        sed -i 's/^Components: main$/Components: main contrib non-free non-free-firmware/' /etc/apt/sources.list.d/debian.sources
+        # Lägg till non-free och non-free-firmware om de saknas
+        if ! grep -q "non-free" /etc/apt/sources.list.d/debian.sources; then
+            sed -i "/^Components:/s/$/ non-free non-free-firmware/" /etc/apt/sources.list.d/debian.sources
+        fi
+        # Lägg till contrib om det saknas
+        if ! grep -q "contrib" /etc/apt/sources.list.d/debian.sources; then
+            sed -i "/^Components:/s/$/ contrib/" /etc/apt/sources.list.d/debian.sources
+        fi
     fi
-"
+    # Legacy format (sources.list)
+    if [ -f /etc/apt/sources.list ] && ! grep -q "non-free" /etc/apt/sources.list; then
+        sed -i "s/main$/main contrib non-free non-free-firmware/" /etc/apt/sources.list
+    fi
+'
 pct exec "${IP_FRIGATE}" -- bash -c "apt-get update -qq > /dev/null 2>&1"
 
 # Intel media driver (non-free) — krävs för HW-acceleration
