@@ -40,10 +40,13 @@ if [ "${_SELF_UPDATED:-}" != "1" ]; then
         echo -e "\033[36m[i]\033[0m Kollar efter uppdateringar..."
         cd "$SCRIPT_DIR/.."
         OLD_HEAD=$(git rev-parse HEAD 2>/dev/null)
-        if git pull --quiet 2>/dev/null; then
-            NEW_HEAD=$(git rev-parse HEAD 2>/dev/null)
+        if git fetch --quiet 2>/dev/null; then
+            NEW_HEAD=$(git rev-parse origin/master 2>/dev/null)
             if [ "$OLD_HEAD" != "$NEW_HEAD" ]; then
-                echo -e "\033[32m[OK]\033[0m Ny version hämtad — startar om scriptet..."
+                echo -e "\033[32m[OK]\033[0m Ny version hittad — uppdaterar..."
+                git reset --hard origin/master --quiet 2>/dev/null
+                git clean -fd --quiet 2>/dev/null
+                echo -e "\033[32m[OK]\033[0m Uppdaterat — startar om scriptet..."
                 cd "$SCRIPT_DIR"
                 export _SELF_UPDATED=1
                 exec bash "$0" "$@"

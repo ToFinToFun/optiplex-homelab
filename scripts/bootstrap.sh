@@ -244,7 +244,9 @@ echo -e "\n${BOLD}Hämtar installationsskript...${NC}"
 if [ -d "$INSTALL_DIR/.git" ]; then
     echo -e "  ${CYAN}→${NC} Repot finns redan i $INSTALL_DIR. Uppdaterar..."
     cd "$INSTALL_DIR"
-    git pull --quiet
+    git fetch --quiet
+    git reset --hard origin/master --quiet
+    git clean -fd --quiet 2>/dev/null
     echo -e "  ${GREEN}[OK]${NC} Uppdaterat till senaste versionen."
 else
     if [ -d "$INSTALL_DIR" ]; then
