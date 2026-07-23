@@ -483,16 +483,13 @@ if [ "$HEADLESS" == "true" ]; then
     [ "$STATUS_NPM" != "saknas" ] && DO_NPM="n"
     [ "$STATUS_FRIGATE" != "saknas" ] && DO_FRIGATE="n"
     [ "$STATUS_RDP" != "saknas" ] && DO_RDP="n" || DO_RDP="y"
-    # Dessa kräver för mycket manuell input — hoppa över i headless
     DO_CAMERAS="n"
     DO_CF_DNS="n"
     DO_NPM_CONF="n"
     msg_info "Hoppar över: Kameror, Cloudflare DNS, NPM-regler (kräver manuell input)."
     msg_info "Kör 'bash setup.sh' interaktivt efterhand för att konfigurera dessa."
-elif [ $DONE_COUNT -eq 0 ]; then
-    msg_info "Första installationen — alla steg körs."
 else
-    # Re-run: Visa meny
+    # ===== HUVUDMENY =====
     status_icon() {
         if [ "$1" == "saknas" ]; then
             echo -e "${RED}✗${NC}"
@@ -500,77 +497,153 @@ else
             echo -e "${GREEN}✓${NC}"
         fi
     }
-    
+
     tty_echo ""
     tty_echo "  ${CYAN}╔════════════════════════════════════════════════════════╗${NC}"
-    tty_echo "  ${CYAN}║${NC} ${BOLD}Befintlig installation hittad!${NC}                        ${CYAN}║${NC}"
-    tty_echo "  ${CYAN}╠════════════════════════════════════════════════════════╣${NC}"
-    tty_printf "  ${CYAN}║${NC}  1. $(status_icon $STATUS_HOST) Proxmox Host         %-16s ${CYAN}║${NC}\n" "($STATUS_HOST)"
-    tty_printf "  ${CYAN}║${NC}  2. $(status_icon $STATUS_HA) Home Assistant       %-16s ${CYAN}║${NC}\n" "($STATUS_HA)"
-    tty_printf "  ${CYAN}║${NC}  3. $(status_icon $STATUS_CF) Cloudflared          %-16s ${CYAN}║${NC}\n" "($STATUS_CF)"
-    tty_printf "  ${CYAN}║${NC}  4. $(status_icon $STATUS_NPM) NPM                  %-16s ${CYAN}║${NC}\n" "($STATUS_NPM)"
-    tty_printf "  ${CYAN}║${NC}  5. $(status_icon $STATUS_FRIGATE) Frigate              %-16s ${CYAN}║${NC}\n" "($STATUS_FRIGATE)"
-    tty_printf "  ${CYAN}║${NC}  6. $(status_icon $STATUS_CAMERAS) Kameror & Config     %-16s ${CYAN}║${NC}\n" "($STATUS_CAMERAS)"
-    tty_printf "  ${CYAN}║${NC}  7. $(status_icon $STATUS_CFDNS) Cloudflare DNS       %-16s ${CYAN}║${NC}\n" "($STATUS_CFDNS)"
-    tty_printf "  ${CYAN}║${NC}  8. $(status_icon $STATUS_NPMCONF) NPM Auto-Config      %-16s ${CYAN}║${NC}\n" "($STATUS_NPMCONF)"
-    tty_printf "  ${CYAN}║${NC}  9. $(status_icon $STATUS_RDP) Remote Desktop      %-16s ${CYAN}║${NC}\n" "($STATUS_RDP)"
+    tty_echo "  ${CYAN}║${NC}  ${BOLD}OptiPlex Homelab Setup${NC}                                ${CYAN}║${NC}"
     tty_echo "  ${CYAN}╠════════════════════════════════════════════════════════╣${NC}"
     tty_echo "  ${CYAN}║${NC}                                                        ${CYAN}║${NC}"
-    tty_echo "  ${CYAN}║${NC}  ${BOLD}N${NC} = Kör bara det som saknas (rekommenderat)           ${CYAN}║${NC}"
-    tty_echo "  ${CYAN}║${NC}  ${BOLD}A${NC} = Kör ALLT (inklusive klara steg)                   ${CYAN}║${NC}"
-    tty_echo "  ${CYAN}║${NC}  ${BOLD}1-9${NC} = Välj specifika steg (t.ex. ${GREEN}6,9${NC})               ${CYAN}║${NC}"
-    tty_echo "  ${CYAN}║${NC}  ${BOLD}Q${NC} = Avsluta                                            ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}║${NC}  ${BOLD}Vad vill du göra?${NC}                                    ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}║${NC}                                                        ${CYAN}║${NC}"
+    if [ $DONE_COUNT -eq 0 ]; then
+    tty_echo "  ${CYAN}║${NC}  ${GREEN}1)${NC} Första installation (installera allt)              ${CYAN}║${NC}"
+    else
+    tty_echo "  ${CYAN}║${NC}  ${GREEN}1)${NC} Installera det som saknas                          ${CYAN}║${NC}"
+    fi
+    tty_echo "  ${CYAN}║${NC}  ${YELLOW}2)${NC} Laga / Uppgradera befintligt                       ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}║${NC}  ${BLUE}3)${NC} Konfigurera (kameror, DNS, regler)                 ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}║${NC}  ${MAGENTA}4)${NC} Avancerat (välj enskilda steg)                     ${CYAN}║${NC}"
+    tty_echo "  ${CYAN}║${NC}  ${RED}Q)${NC} Avsluta                                             ${CYAN}║${NC}"
     tty_echo "  ${CYAN}║${NC}                                                        ${CYAN}║${NC}"
     tty_echo "  ${CYAN}╚════════════════════════════════════════════════════════╝${NC}"
     tty_echo ""
-    tty_printf "  ${BOLD}Välj [N/A/1-9/Q]: ${NC}"
-    tty_read MENU_CHOICE
-    
-    case "${MENU_CHOICE^^}" in
+    tty_printf "  ${BOLD}Välj [1-4/Q] (default: 1): ${NC}"
+    tty_read TOP_CHOICE
+
+    case "${TOP_CHOICE:-1}" in
+        1)
+            # ===== INSTALLERA (det som saknas) =====
+            if [ $DONE_COUNT -eq 0 ]; then
+                msg_info "Första installationen — alla steg körs."
+            else
+                [ "$STATUS_HOST" != "saknas" ] && DO_HOST="n"
+                [ "$STATUS_HA" != "saknas" ] && DO_HA="n"
+                [ "$STATUS_CF" != "saknas" ] && DO_CF="n"
+                [ "$STATUS_NPM" != "saknas" ] && DO_NPM="n"
+                [ "$STATUS_FRIGATE" != "saknas" ] && DO_FRIGATE="n"
+                [ "$STATUS_CAMERAS" != "saknas" ] && DO_CAMERAS="n"
+                [ "$STATUS_CFDNS" != "saknas" ] && DO_CF_DNS="n"
+                [ "$STATUS_NPMCONF" != "saknas" ] && DO_NPM_CONF="n"
+                [ "$STATUS_RDP" != "saknas" ] && DO_RDP="n"
+                msg_info "Kör bara steg som saknas."
+            fi
+            ;;
+        2)
+            # ===== LAGA / UPPGRADERA =====
+            tty_echo ""
+            tty_echo "  ${BOLD}Laga / Uppgradera:${NC}"
+            tty_echo ""
+            tty_printf "  $(status_icon $STATUS_FRIGATE) Frigate     %-16s\n" "($STATUS_FRIGATE)"
+            tty_printf "  $(status_icon $STATUS_NPM) NPM         %-16s\n" "($STATUS_NPM)"
+            tty_printf "  $(status_icon $STATUS_CF) Cloudflared %-16s\n" "($STATUS_CF)"
+            tty_printf "  $(status_icon $STATUS_HA) Home Assist %-16s\n" "($STATUS_HA)"
+            tty_printf "  $(status_icon $STATUS_RDP) Remote Desk %-16s\n" "($STATUS_RDP)"
+            tty_echo ""
+            msg_info "Söker efter uppgraderingar och problem..."
+            tty_echo ""
+
+            # Sätt alla till n, aktivera bara upgrade-paths
+            DO_HOST="n"; DO_HA="n"; DO_CF="n"; DO_NPM="n"
+            DO_CAMERAS="n"; DO_CF_DNS="n"; DO_NPM_CONF="n"; DO_RDP="n"
+
+            # Frigate: erbjud upgrade om den finns
+            if [ "$STATUS_FRIGATE" != "saknas" ]; then
+                DO_FRIGATE="upgrade"
+            else
+                DO_FRIGATE="n"
+                msg_info "Frigate är inte installerad — välj '1' för att installera."
+            fi
+            ;;
+        3)
+            # ===== KONFIGURERA =====
+            tty_echo ""
+            tty_echo "  ${BOLD}Konfigurera:${NC}"
+            tty_echo ""
+            tty_printf "  $(status_icon $STATUS_CAMERAS) Kameror & Frigate-config  %-12s\n" "($STATUS_CAMERAS)"
+            tty_printf "  $(status_icon $STATUS_CFDNS) Cloudflare DNS-routing   %-12s\n" "($STATUS_CFDNS)"
+            tty_printf "  $(status_icon $STATUS_NPMCONF) NPM Proxy-regler         %-12s\n" "($STATUS_NPMCONF)"
+            tty_echo ""
+
+            # Sätt alla till n, aktivera bara config-steg
+            DO_HOST="n"; DO_HA="n"; DO_CF="n"; DO_NPM="n"
+            DO_FRIGATE="n"; DO_RDP="n"
+            DO_CAMERAS="y"; DO_CF_DNS="y"; DO_NPM_CONF="y"
+            msg_info "Kör konfigurationssteg (kameror, DNS, NPM-regler)."
+            ;;
+        4)
+            # ===== AVANCERAT (befintlig detaljerad meny) =====
+            tty_echo ""
+            tty_echo "  ${CYAN}╔════════════════════════════════════════════════════════╗${NC}"
+            tty_echo "  ${CYAN}║${NC} ${BOLD}Avancerat — välj enskilda steg${NC}                       ${CYAN}║${NC}"
+            tty_echo "  ${CYAN}╠════════════════════════════════════════════════════════╣${NC}"
+            tty_printf "  ${CYAN}║${NC}  1. $(status_icon $STATUS_HOST) Proxmox Host         %-16s ${CYAN}║${NC}\n" "($STATUS_HOST)"
+            tty_printf "  ${CYAN}║${NC}  2. $(status_icon $STATUS_HA) Home Assistant       %-16s ${CYAN}║${NC}\n" "($STATUS_HA)"
+            tty_printf "  ${CYAN}║${NC}  3. $(status_icon $STATUS_CF) Cloudflared          %-16s ${CYAN}║${NC}\n" "($STATUS_CF)"
+            tty_printf "  ${CYAN}║${NC}  4. $(status_icon $STATUS_NPM) NPM                  %-16s ${CYAN}║${NC}\n" "($STATUS_NPM)"
+            tty_printf "  ${CYAN}║${NC}  5. $(status_icon $STATUS_FRIGATE) Frigate              %-16s ${CYAN}║${NC}\n" "($STATUS_FRIGATE)"
+            tty_printf "  ${CYAN}║${NC}  6. $(status_icon $STATUS_CAMERAS) Kameror & Config     %-16s ${CYAN}║${NC}\n" "($STATUS_CAMERAS)"
+            tty_printf "  ${CYAN}║${NC}  7. $(status_icon $STATUS_CFDNS) Cloudflare DNS       %-16s ${CYAN}║${NC}\n" "($STATUS_CFDNS)"
+            tty_printf "  ${CYAN}║${NC}  8. $(status_icon $STATUS_NPMCONF) NPM Auto-Config      %-16s ${CYAN}║${NC}\n" "($STATUS_NPMCONF)"
+            tty_printf "  ${CYAN}║${NC}  9. $(status_icon $STATUS_RDP) Remote Desktop      %-16s ${CYAN}║${NC}\n" "($STATUS_RDP)"
+            tty_echo "  ${CYAN}╠════════════════════════════════════════════════════════╣${NC}"
+            tty_echo "  ${CYAN}║${NC}                                                        ${CYAN}║${NC}"
+            tty_echo "  ${CYAN}║${NC}  ${BOLD}A${NC} = Kör ALLT                                         ${CYAN}║${NC}"
+            tty_echo "  ${CYAN}║${NC}  ${BOLD}1-9${NC} = Välj specifika steg (t.ex. ${GREEN}6,9${NC})               ${CYAN}║${NC}"
+            tty_echo "  ${CYAN}║${NC}  ${BOLD}Q${NC} = Avsluta                                            ${CYAN}║${NC}"
+            tty_echo "  ${CYAN}║${NC}                                                        ${CYAN}║${NC}"
+            tty_echo "  ${CYAN}╚════════════════════════════════════════════════════════╝${NC}"
+            tty_echo ""
+            tty_printf "  ${BOLD}Välj [A/1-9/Q]: ${NC}"
+            tty_read MENU_CHOICE
+
+            case "${MENU_CHOICE^^}" in
+                Q|q)
+                    msg_info "Avslutar."
+                    exit 0
+                    ;;
+                A|a)
+                    msg_info "Kör alla steg (befintliga containers skrivs INTE över)."
+                    ;;
+                *)
+                    # Specifika steg
+                    DO_HOST="n"; DO_HA="n"; DO_CF="n"; DO_NPM="n"
+                    DO_FRIGATE="n"; DO_CAMERAS="n"; DO_CF_DNS="n"; DO_NPM_CONF="n"; DO_RDP="n"
+                    SELECTED=$(echo "$MENU_CHOICE" | tr ',' ' ' | tr -s ' ')
+                    for sel in $SELECTED; do
+                        case "$sel" in
+                            1) DO_HOST="y" ;;
+                            2) DO_HA="y" ;;
+                            3) DO_CF="y" ;;
+                            4) DO_NPM="y" ;;
+                            5) DO_FRIGATE="y" ;;
+                            6) DO_CAMERAS="y" ;;
+                            7) DO_CF_DNS="y" ;;
+                            8) DO_NPM_CONF="y" ;;
+                            9) DO_RDP="y" ;;
+                            *) msg_warn "Okänt val: $sel (ignoreras)" ;;
+                        esac
+                    done
+                    msg_info "Kör valda steg: ${MENU_CHOICE}"
+                    ;;
+            esac
+            ;;
         Q|q)
             msg_info "Avslutar."
             exit 0
             ;;
-        A|a)
-            # Kör allt — återställ alla DO_* till y
-            msg_info "Kör alla steg (befintliga containers skrivs INTE över)."
-            ;;
-        N|n|"")
-            # Default: kör bara det som saknas
-            [ "$STATUS_HOST" != "saknas" ] && DO_HOST="n"
-            [ "$STATUS_HA" != "saknas" ] && DO_HA="n"
-            [ "$STATUS_CF" != "saknas" ] && DO_CF="n"
-            [ "$STATUS_NPM" != "saknas" ] && DO_NPM="n"
-            [ "$STATUS_FRIGATE" != "saknas" ] && DO_FRIGATE="n"
-            [ "$STATUS_CAMERAS" != "saknas" ] && DO_CAMERAS="n"
-            [ "$STATUS_CFDNS" != "saknas" ] && DO_CF_DNS="n"
-            [ "$STATUS_NPMCONF" != "saknas" ] && DO_NPM_CONF="n"
-            [ "$STATUS_RDP" != "saknas" ] && DO_RDP="n"
-            msg_info "Kör bara steg som saknas."
-            ;;
         *)
-            # Specifika steg (t.ex. "6,8" eller "6 8" eller "6")
-            # Sätt alla till n först
-            DO_HOST="n"; DO_HA="n"; DO_CF="n"; DO_NPM="n"
-            DO_FRIGATE="n"; DO_CAMERAS="n"; DO_CF_DNS="n"; DO_NPM_CONF="n"; DO_RDP="n"
-            
-            # Parsa val (stöd: "6,8", "6 8", "6, 8")
-            SELECTED=$(echo "$MENU_CHOICE" | tr ',' ' ' | tr -s ' ')
-            for sel in $SELECTED; do
-                case "$sel" in
-                    1) DO_HOST="y" ;;
-                    2) DO_HA="y" ;;
-                    3) DO_CF="y" ;;
-                    4) DO_NPM="y" ;;
-                    5) DO_FRIGATE="y" ;;
-                    6) DO_CAMERAS="y" ;;
-                    7) DO_CF_DNS="y" ;;
-                    8) DO_NPM_CONF="y" ;;
-                    9) DO_RDP="y" ;;
-                    *) msg_warn "Okänt val: $sel (ignoreras)" ;;
-                esac
-            done
-            msg_info "Kör valda steg: ${MENU_CHOICE}"
+            msg_warn "Okänt val: ${TOP_CHOICE}. Avslutar."
+            exit 1
             ;;
     esac
 fi
