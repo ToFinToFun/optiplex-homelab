@@ -240,3 +240,23 @@ validate_password() {
     fi
     return 0
 }
+
+# Validera användarnamn (Linux-kompatibelt)
+# Tillåtna: a-z, 0-9, -, _ (börjar med bokstav, max 32 tecken)
+# Användning: if ! validate_username "$user"; then ...
+validate_username() {
+    local user="$1"
+    if [ -z "$user" ]; then
+        msg_warn "Användarnamn får inte vara tomt."
+        return 1
+    fi
+    if [ ${#user} -gt 32 ]; then
+        msg_warn "Användarnamn får vara max 32 tecken."
+        return 1
+    fi
+    if ! [[ "$user" =~ ^[a-z][a-z0-9_-]*$ ]]; then
+        msg_warn "Användarnamn måste börja med liten bokstav och bara innehålla a-z, 0-9, - och _"
+        return 1
+    fi
+    return 0
+}

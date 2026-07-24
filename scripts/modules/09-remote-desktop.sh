@@ -84,6 +84,9 @@ if [ "$INSTALL_GUAC" == "y" ]; then
     else
         tty_echo "  ${DIM}Guacamole admin-konto (för inloggning i webbgränssnittet)${NC}"
         GUAC_ADMIN_USER=$(ask_string "Guacamole admin-användarnamn" "admin")
+        while ! validate_username "$GUAC_ADMIN_USER"; do
+            GUAC_ADMIN_USER=$(ask_string "Guacamole admin-användarnamn" "admin")
+        done
         GUAC_ADMIN_PASS=""
         while [ -z "$GUAC_ADMIN_PASS" ] || ! validate_password "$GUAC_ADMIN_PASS"; do
             [ -z "$GUAC_ADMIN_PASS" ] || true  # validate_password already shows warning
@@ -109,6 +112,9 @@ if [ "$INSTALL_DESKTOP" == "y" ]; then
     else
         tty_echo "  ${DIM}Desktop-användare (för RDP-inloggning)${NC}"
         DESKTOP_USER=$(ask_string "Desktop-användarnamn" "user")
+        while ! validate_username "$DESKTOP_USER"; do
+            DESKTOP_USER=$(ask_string "Desktop-användarnamn" "user")
+        done
         DESKTOP_PASS=""
         while [ -z "$DESKTOP_PASS" ] || ! validate_password "$DESKTOP_PASS"; do
             [ -z "$DESKTOP_PASS" ] || true  # validate_password already shows warning
@@ -122,6 +128,12 @@ if [ "$INSTALL_DESKTOP" == "y" ]; then
             DESKTOP_DISK=16
         fi
     fi
+fi
+
+# Kontrollera att Guacamole och Desktop inte har samma CT-ID
+if [ "$INSTALL_GUAC" == "y" ] && [ "$INSTALL_DESKTOP" == "y" ] && [ "$IP_GUACAMOLE" == "$IP_DESKTOP" ]; then
+    msg_err "Guacamole och Desktop kan inte ha samma CT-ID (${IP_GUACAMOLE}). Ändra ett av dem."
+    return 1 2>/dev/null || exit 1
 fi
 
 # ─── Installation: Guacamole ─────────────────────────────────

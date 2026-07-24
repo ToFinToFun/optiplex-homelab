@@ -83,12 +83,15 @@ pct exec "${IP_IMMICH}" -- bash -c "
 
 # --- Installera Immich ---
 msg_info "Laddar ner Immich docker-compose..."
-pct exec "${IP_IMMICH}" -- bash -c "
+if ! pct exec "${IP_IMMICH}" -- bash -c "
     mkdir -p /opt/immich
     cd /opt/immich
-    curl -fsSL -o docker-compose.yml https://github.com/immich-app/immich/releases/latest/download/docker-compose.yml
-    curl -fsSL -o .env https://github.com/immich-app/immich/releases/latest/download/example.env
-"
+    curl -fsSL -o docker-compose.yml https://github.com/immich-app/immich/releases/latest/download/docker-compose.yml || exit 1
+    curl -fsSL -o .env https://github.com/immich-app/immich/releases/latest/download/example.env || exit 1
+"; then
+    msg_err "Kunde inte ladda ner Immich-filer från GitHub. Kontrollera internet i containern."
+    return 1 2>/dev/null || exit 1
+fi
 
 # --- Konfigurera .env ---
 IMMICH_DB_PASS=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 24)
@@ -109,10 +112,13 @@ pct exec "${IP_IMMICH}" -- bash -c "
 
 # --- Starta Immich ---
 msg_info "Startar Immich (detta kan ta 2-5 minuter vid första start)..."
-pct exec "${IP_IMMICH}" -- bash -c "
+if ! pct exec "${IP_IMMICH}" -- bash -c "
     cd /opt/immich
     docker compose up -d
-"
+"; then
+    msg_err "docker compose up misslyckades. Kontrollera loggar: pct exec ${IP_IMMICH} -- docker compose -f /opt/immich/docker-compose.yml logs"
+    return 1 2>/dev/null || exit 1
+fi
 
 # --- Vänta på att Immich svarar ---
 msg_info "Väntar på att Immich startar..."
