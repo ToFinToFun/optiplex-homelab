@@ -59,8 +59,8 @@ if [ "${_SELF_UPDATED:-}" != "1" ]; then
     fi
 fi
 
-# Starta loggning (inte i dry-run)
-if [ "$DRY_RUN" != "true" ]; then
+# Starta loggning (inte i dry-run, kräver skrivbehörighet till /var/log)
+if [ "$DRY_RUN" != "true" ] && touch /var/log/optiplex-setup.log 2>/dev/null; then
     exec > >(tee -a /var/log/optiplex-setup.log) 2>&1
 fi
 
@@ -722,12 +722,16 @@ else
             tty_printf "  $(status_icon $STATUS_FRIGATE) Frigate     %-16s\n" "($STATUS_FRIGATE)"
             tty_printf "  $(status_icon $STATUS_NPM) NPM         %-16s\n" "($STATUS_NPM)"
             tty_printf "  $(status_icon $STATUS_CF) Cloudflared %-16s\n" "($STATUS_CF)"
+            tty_printf "  $(status_icon $STATUS_ADGUARD) AdGuard     %-16s\n" "($STATUS_ADGUARD)"
             tty_printf "  $(status_icon $STATUS_HA) Home Assist %-16s\n" "($STATUS_HA)"
             tty_printf "  $(status_icon $STATUS_RDP) Remote Desk %-16s\n" "($STATUS_RDP)"
+            # Visa tillägg bara om de är installerade
+            [ "$STATUS_SAMBA" != "saknas" ] && tty_printf "  $(status_icon $STATUS_SAMBA) Samba       %-16s\n" "($STATUS_SAMBA)"
+            [ "$STATUS_IMMICH" != "saknas" ] && tty_printf "  $(status_icon $STATUS_IMMICH) Immich      %-16s\n" "($STATUS_IMMICH)"
+            [ "$STATUS_NUT" != "saknas" ] && tty_printf "  $(status_icon $STATUS_NUT) NUT         %-16s\n" "($STATUS_NUT)"
             tty_echo ""
             msg_info "Söker efter uppgraderingar och problem..."
             tty_echo ""
-
             # Sätt alla till n, aktivera bara upgrade-paths
             DO_HOST="n"; DO_HA="n"; DO_CF="n"; DO_ADGUARD="n"; DO_NPM="n"
             DO_CAMERAS="n"; DO_CF_DNS="n"; DO_NPM_CONF="n"; DO_RDP="n"
@@ -738,6 +742,10 @@ else
             else
                 DO_FRIGATE="n"
                 msg_info "Frigate är inte installerad — välj '1' för att installera."
+            fi
+            # Immich: informera om upgrade-möjlighet
+            if [ "$STATUS_IMMICH" != "saknas" ]; then
+                msg_info "Immich kan uppgraderas: pct exec ${IP_IMMICH:-111} -- /opt/immich/upgrade.sh"
             fi
             ;;
         3)
