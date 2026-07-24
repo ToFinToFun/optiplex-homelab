@@ -20,6 +20,9 @@ TEMPLATE_PATH=$1
 IP_SAMBA="${IP_SAMBA:-109}"
 STORAGE_POOL="${STORAGE_POOL:-local-lvm}"
 
+# Pre-flight check
+preflight_check_network || { return 1 2>/dev/null || exit 1; }
+
 CIDR="${NETWORK_CIDR:-24}"
 CT_IP="${NETWORK_PREFIX}.${IP_SAMBA}"
 
@@ -104,7 +107,7 @@ SMBCONF"
 msg_info "Skapar Samba-användare '${SAMBA_USER}'..."
 pct exec "${IP_SAMBA}" -- bash -c "
     useradd -M -s /usr/sbin/nologin '${SAMBA_USER}' 2>/dev/null || true
-    echo -e '${SAMBA_PASS}\n${SAMBA_PASS}' | smbpasswd -a -s '${SAMBA_USER}'
+    printf '%s\n%s\n' '${SAMBA_PASS}' '${SAMBA_PASS}' | smbpasswd -a -s '${SAMBA_USER}'
     smbpasswd -e '${SAMBA_USER}'
 "
 

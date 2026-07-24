@@ -23,6 +23,9 @@ TEMPLATE_PATH=$1
 IP_NUT="${IP_NUT:-111}"
 STORAGE_POOL="${STORAGE_POOL:-local-lvm}"
 
+# Pre-flight check
+preflight_check_network || { return 1 2>/dev/null || exit 1; }
+
 CIDR="${NETWORK_CIDR:-24}"
 CT_IP="${NETWORK_PREFIX}.${IP_NUT}"
 

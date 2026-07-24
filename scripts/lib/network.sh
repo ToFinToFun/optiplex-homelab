@@ -100,6 +100,37 @@ confirm_network() {
 }
 
 # ============================================================
+# Pre-flight check: Verifiera att nätverksvariabler är satta
+# ============================================================
+# Anropas av moduler innan container-skapning för att ge tydliga
+# felmeddelanden istället för kryptiska Proxmox-fel.
+# Användning: preflight_check_network || return 1
+preflight_check_network() {
+    local errors=0
+    if [ -z "${NETWORK_PREFIX:-}" ]; then
+        msg_err "NETWORK_PREFIX är inte satt! Kontrollera setup.env."
+        ((errors++))
+    fi
+    if [ -z "${GATEWAY:-}" ]; then
+        msg_err "GATEWAY är inte satt! Kontrollera setup.env."
+        ((errors++))
+    fi
+    if [ -z "${STORAGE_POOL:-}" ]; then
+        msg_err "STORAGE_POOL är inte satt! Kontrollera setup.env."
+        ((errors++))
+    fi
+    if [ -z "${TEMPLATE_PATH:-}" ] && [ -z "${1:-}" ]; then
+        msg_err "TEMPLATE_PATH (LXC-mall) är inte satt!"
+        ((errors++))
+    fi
+    if [ "$errors" -gt 0 ]; then
+        msg_err "Pre-flight check misslyckades ($errors fel). Kör wizarden: bash setup.sh"
+        return 1
+    fi
+    return 0
+}
+
+# ============================================================
 # Nätverksparameter för CT-skapning (DHCP vs statisk)
 # ============================================================
 # Returnerar korrekt --net0-sträng baserat på USE_DHCP

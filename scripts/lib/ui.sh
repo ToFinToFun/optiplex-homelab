@@ -222,3 +222,21 @@ ask_string() {
         echo "$answer"
     fi
 }
+
+# Validera lösenord: avvisa tecken som bryter bash/JSON-hantering
+# Användning: if ! validate_password "$pass"; then ...
+# Tillåtna: A-Za-z0-9 och: @#%^&*()-_+=[]{}|;:,.<>/?
+# Förbjudna: ' " \ ` $ ! ~
+validate_password() {
+    local pass="$1"
+    if [ -z "$pass" ]; then
+        return 1
+    fi
+    # Kolla efter förbjudna tecken
+    if [[ "$pass" =~ [\'\"\\\`\$\!\~] ]]; then
+        msg_warn "Lösenordet innehåller otillåtna tecken: ' \" \\ \` \$ ! ~"
+        msg_warn "Använd bokstäver, siffror och: @#%^&*()-_+=[]{}|;:,.<>/?"
+        return 1
+    fi
+    return 0
+}

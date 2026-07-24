@@ -75,12 +75,12 @@ source lib/rollback.sh
 # PREFLIGHT: Verifiera att alla funktioner finns
 # ==========================================
 PREFLIGHT_OK=true
-for fn in msg_info msg_ok msg_warn msg_err msg_skip show_progress ask_yes_no ask_string \
+for fn in msg_info msg_ok msg_warn msg_err msg_skip show_progress ask_yes_no ask_string validate_password \
           load_config save_config get_state set_state \
           check_is_proxmox check_id_exists get_debian_template find_storage_pool \
           resolve_ct_id resolve_vm_id find_ct_by_hostname find_vm_by_name \
           detect_network confirm_network check_ip_free find_free_ip verify_planned_ips get_net0_param discover_ct_ip \
-          show_bios_status \
+          preflight_check_network show_bios_status \
           rollback_register rollback_offer rollback_clear; do
     if ! type "$fn" &>/dev/null; then
         echo "FATAL: Funktion '$fn' saknas! Kontrollera att lib/-filerna är kompletta."
@@ -396,8 +396,8 @@ if load_config; then
     if [ -n "$SHARED_PASSWORD" ]; then
         if ! ask_yes_no "Behålla befintligt gemensamt lösenord?" "Y"; then
             SHARED_PASSWORD=$(ask_string "Nytt gemensamt lösenord" "" "true")
-            while [ -z "$SHARED_PASSWORD" ]; do
-                msg_warn "Lösenord kan inte vara tomt."
+            while [ -z "$SHARED_PASSWORD" ] || ! validate_password "$SHARED_PASSWORD"; do
+                [ -z "$SHARED_PASSWORD" ] && msg_warn "Lösenord kan inte vara tomt."
                 SHARED_PASSWORD=$(ask_string "Nytt gemensamt lösenord" "" "true")
             done
             CT_PASSWORD="$SHARED_PASSWORD"
@@ -449,8 +449,8 @@ else
     tty_echo "  ${CYAN}╚══════════════════════════════════════════════════════════╝${NC}"
     tty_echo ""
     SHARED_PASSWORD=$(ask_string "Välj ett gemensamt lösenord" "" "true")
-    while [ -z "$SHARED_PASSWORD" ]; do
-        msg_warn "Lösenord kan inte vara tomt."
+    while [ -z "$SHARED_PASSWORD" ] || ! validate_password "$SHARED_PASSWORD"; do
+        [ -z "$SHARED_PASSWORD" ] && msg_warn "Lösenord kan inte vara tomt."
         SHARED_PASSWORD=$(ask_string "Välj ett gemensamt lösenord" "" "true")
     done
     

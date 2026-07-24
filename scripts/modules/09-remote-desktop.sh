@@ -8,6 +8,11 @@ TEMPLATE_PATH=$1
 
 # Säkerställ defaults
 STORAGE_POOL="${STORAGE_POOL:-local-lvm}"
+IP_GUACAMOLE="${IP_GUACAMOLE:-107}"
+IP_DESKTOP="${IP_DESKTOP:-108}"
+
+# Pre-flight check
+preflight_check_network || { return 1 2>/dev/null || exit 1; }
 
 # ============================================================
 # Modul 09 — Remote Desktop (Guacamole + Linux Desktop)
@@ -80,7 +85,8 @@ if [ "$INSTALL_GUAC" == "y" ]; then
         tty_echo "  ${DIM}Guacamole admin-konto (för inloggning i webbgränssnittet)${NC}"
         GUAC_ADMIN_USER=$(ask_string "Guacamole admin-användarnamn" "admin")
         GUAC_ADMIN_PASS=""
-        while [ -z "$GUAC_ADMIN_PASS" ]; do
+        while [ -z "$GUAC_ADMIN_PASS" ] || ! validate_password "$GUAC_ADMIN_PASS"; do
+            [ -z "$GUAC_ADMIN_PASS" ] || true  # validate_password already shows warning
             GUAC_ADMIN_PASS=$(ask_string "Guacamole admin-lösenord" "" "true")
         done
     fi
@@ -104,7 +110,8 @@ if [ "$INSTALL_DESKTOP" == "y" ]; then
         tty_echo "  ${DIM}Desktop-användare (för RDP-inloggning)${NC}"
         DESKTOP_USER=$(ask_string "Desktop-användarnamn" "user")
         DESKTOP_PASS=""
-        while [ -z "$DESKTOP_PASS" ]; do
+        while [ -z "$DESKTOP_PASS" ] || ! validate_password "$DESKTOP_PASS"; do
+            [ -z "$DESKTOP_PASS" ] || true  # validate_password already shows warning
             DESKTOP_PASS=$(ask_string "Desktop-lösenord" "" "true")
         done
         
@@ -429,7 +436,7 @@ if [ "$INSTALL_DESKTOP" == "y" ]; then
     # Skapa användare
     msg_info "Skapar användare '${DESKTOP_USER}'..."
     pct exec "${IP_DESKTOP}" -- bash -c "useradd -m -s /bin/bash -G sudo,audio,video '${DESKTOP_USER}'"
-    pct exec "${IP_DESKTOP}" -- bash -c "echo '${DESKTOP_USER}:${DESKTOP_PASS}' | chpasswd"
+    printf '%s:%s\n' "${DESKTOP_USER}" "${DESKTOP_PASS}" | pct exec "${IP_DESKTOP}" -- chpasswd
     
     # Konfigurera xrdp för XFCE
     msg_info "Konfigurerar xrdp för XFCE..."
