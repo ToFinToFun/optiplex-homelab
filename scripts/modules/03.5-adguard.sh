@@ -14,6 +14,17 @@ source lib/ui.sh
 source lib/network.sh
 TEMPLATE_PATH=$1
 
+# Säkerställ defaults (kan saknas i äldre setup.env)
+IP_ADGUARD="${IP_ADGUARD:-104}"
+STORAGE_POOL="${STORAGE_POOL:-local-lvm}"
+
+# Pre-flight: verifiera att kritiska variabler är satta
+if [ -z "$NETWORK_PREFIX" ] || [ -z "$GATEWAY" ]; then
+    msg_err "NETWORK_PREFIX eller GATEWAY saknas i setup.env!"
+    msg_info "Kör wizarden igen: bash setup.sh"
+    return 1 2>/dev/null || exit 1
+fi
+
 CIDR="${NETWORK_CIDR:-24}"
 CT_IP="${NETWORK_PREFIX}.${IP_ADGUARD}"
 

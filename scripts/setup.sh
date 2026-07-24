@@ -578,6 +578,13 @@ else
     fi
 fi
 
+# Säkerställ att setup.env alltid är uppdaterad med alla variabler
+# (hanterar äldre setup.env som saknar nya variabler som IP_ADGUARD)
+if [ "$DRY_RUN" != "true" ]; then
+    save_config
+    chmod 600 setup.env 2>/dev/null
+fi
+
 # ==========================================
 # 3. Inventering och Planering (Resume-stöd)
 # ==========================================
