@@ -6,6 +6,9 @@ source lib/network.sh
 source lib/rollback.sh
 TEMPLATE_PATH=$1
 
+# Säkerställ defaults
+STORAGE_POOL="${STORAGE_POOL:-local-lvm}"
+
 # ============================================================
 # Modul 09 — Remote Desktop (Guacamole + Linux Desktop)
 # ============================================================

@@ -4,6 +4,9 @@ source lib/ui.sh
 source lib/config.sh
 source lib/proxmox.sh
 
+# Säkerställ defaults
+IP_FRIGATE="${IP_FRIGATE:-103}"
+
 msg_header "Axis Kameror & Frigate Config Generator"
 
 # ============================================================

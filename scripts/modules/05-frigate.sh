@@ -4,6 +4,10 @@ source lib/ui.sh
 source lib/network.sh
 TEMPLATE_PATH=$1
 
+# Säkerställ defaults
+IP_FRIGATE="${IP_FRIGATE:-103}"
+STORAGE_POOL="${STORAGE_POOL:-local-lvm}"
+
 CIDR="${NETWORK_CIDR:-24}"
 CT_IP="${NETWORK_PREFIX}.${IP_FRIGATE}"
 

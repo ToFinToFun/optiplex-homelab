@@ -4,6 +4,11 @@ source lib/ui.sh
 source lib/proxmox.sh
 source lib/network.sh
 
+# Säkerställ defaults
+IP_NPM="${IP_NPM:-102}"
+IP_HA="${IP_HA:-100}"
+IP_FRIGATE="${IP_FRIGATE:-103}"
+
 msg_header "Nginx Proxy Manager Auto-Config"
 
 echo -e "${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
