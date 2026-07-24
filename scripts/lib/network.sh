@@ -107,12 +107,23 @@ confirm_network() {
 # Användning: preflight_check_network || return 1
 preflight_check_network() {
     local errors=0
+
+    # Rensa trailing dot (vanligt misstag vid manuell inmatning)
+    NETWORK_PREFIX="${NETWORK_PREFIX%.}"
+    GATEWAY="${GATEWAY%.}"
+
     if [ -z "${NETWORK_PREFIX:-}" ]; then
         msg_err "NETWORK_PREFIX är inte satt! Kontrollera setup.env."
+        ((errors++))
+    elif ! [[ "$NETWORK_PREFIX" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        msg_err "NETWORK_PREFIX har ogiltigt format: '${NETWORK_PREFIX}' (förväntat: t.ex. 192.168.1)"
         ((errors++))
     fi
     if [ -z "${GATEWAY:-}" ]; then
         msg_err "GATEWAY är inte satt! Kontrollera setup.env."
+        ((errors++))
+    elif ! [[ "$GATEWAY" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        msg_err "GATEWAY har ogiltigt format: '${GATEWAY}' (förväntat: t.ex. 192.168.1.1)"
         ((errors++))
     fi
     if [ -z "${STORAGE_POOL:-}" ]; then

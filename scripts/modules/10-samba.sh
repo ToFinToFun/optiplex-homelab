@@ -47,7 +47,7 @@ if ! pct create "${IP_SAMBA}" "${TEMPLATE_PATH}" \
     return 1 2>/dev/null || exit 1
 fi
 
-pct start "${IP_SAMBA}"
+pct start "${IP_SAMBA}" || { msg_err "Kunde inte starta container ${IP_SAMBA}."; return 1 2>/dev/null || exit 1; }
 sleep 5
 
 # Upptäck faktisk IP (viktigt vid DHCP)

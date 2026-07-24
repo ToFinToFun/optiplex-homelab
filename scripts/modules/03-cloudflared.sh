@@ -35,7 +35,7 @@ if ! pct create "${IP_CLOUDFLARED}" "${TEMPLATE_PATH}" \
     return 1 2>/dev/null || exit 1
 fi
 
-pct start "${IP_CLOUDFLARED}"
+pct start "${IP_CLOUDFLARED}" || { msg_err "Kunde inte starta container ${IP_CLOUDFLARED}."; return 1 2>/dev/null || exit 1; }
 sleep 5
 
 # Upptäck faktisk IP (viktigt vid DHCP)
@@ -47,8 +47,10 @@ fi
 
 msg_info "Installerar Cloudflared-demonen..."
 pct exec "${IP_CLOUDFLARED}" -- bash -c "apt-get update -qq > /dev/null 2>&1 && apt-get install -y -qq curl > /dev/null 2>&1"
-pct exec "${IP_CLOUDFLARED}" -- bash -c "curl -sL --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb"
-pct exec "${IP_CLOUDFLARED}" -- bash -c "dpkg -i cloudflared.deb > /dev/null 2>&1"
+if ! pct exec "${IP_CLOUDFLARED}" -- bash -c "curl -fsSL --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb && dpkg -i cloudflared.deb > /dev/null 2>&1"; then
+    msg_err "Kunde inte ladda ner/installera Cloudflared. Kontrollera nätverket."
+    return 1 2>/dev/null || exit 1
+fi
 
 if [ -n "$CF_TUNNEL_TOKEN" ]; then
     msg_info "Konfigurerar tunnel med angiven token..."

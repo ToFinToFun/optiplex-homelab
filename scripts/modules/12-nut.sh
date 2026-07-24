@@ -122,7 +122,7 @@ else
     echo "  lxc.mount.entry: /dev/bus/usb dev/bus/usb none bind,optional,create=dir"
 fi
 
-pct start "${IP_NUT}"
+pct start "${IP_NUT}" || { msg_err "Kunde inte starta container ${IP_NUT}."; return 1 2>/dev/null || exit 1; }
 sleep 5
 
 # Upptäck faktisk IP (viktigt vid DHCP)

@@ -153,7 +153,7 @@ if [ "$INSTALL_GUAC" == "y" ]; then
     fi
     
     rollback_register "ct" "${IP_GUACAMOLE}" "guacamole"
-    pct start "${IP_GUACAMOLE}"
+    pct start "${IP_GUACAMOLE}" || { msg_err "Kunde inte starta Guacamole-container."; return 1 2>/dev/null || exit 1; }
     sleep 5
     
     # Upptäck faktisk IP (viktigt vid DHCP)
@@ -173,7 +173,10 @@ if [ "$INSTALL_GUAC" == "y" ]; then
     pct exec "${IP_GUACAMOLE}" -- bash -c "chmod a+r /etc/apt/keyrings/docker.gpg"
     pct exec "${IP_GUACAMOLE}" -- bash -c 'echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null'
     pct exec "${IP_GUACAMOLE}" -- bash -c "apt-get update -qq > /dev/null 2>&1"
-    pct exec "${IP_GUACAMOLE}" -- bash -c "apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin > /dev/null 2>&1"
+    if ! pct exec "${IP_GUACAMOLE}" -- bash -c "apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin > /dev/null 2>&1"; then
+        msg_err "Docker-installation misslyckades i Guacamole-container. Kontrollera nätverket."
+        return 1 2>/dev/null || exit 1
+    fi
     
     # Skapa Guacamole docker-compose
     msg_info "Konfigurerar Guacamole (Docker Compose)..."
@@ -229,7 +232,11 @@ networks:
   guac-net:
     driver: bridge
 EOF
-    pct push "${IP_GUACAMOLE}" /tmp/guac-compose.yml /opt/guacamole/docker-compose.yml
+    if ! pct push "${IP_GUACAMOLE}" /tmp/guac-compose.yml /opt/guacamole/docker-compose.yml; then
+        msg_err "Kunde inte överföra docker-compose.yml till Guacamole-container."
+        rm -f /tmp/guac-compose.yml
+        return 1 2>/dev/null || exit 1
+    fi
     rm -f /tmp/guac-compose.yml
     
     # Generera databas-initieringsscript (standard schema)
@@ -378,7 +385,7 @@ if [ "$INSTALL_DESKTOP" == "y" ]; then
     fi
     
     rollback_register "ct" "${IP_DESKTOP}" "desktop"
-    pct start "${IP_DESKTOP}"
+    pct start "${IP_DESKTOP}" || { msg_err "Kunde inte starta Desktop-container."; return 1 2>/dev/null || exit 1; }
     sleep 5
     
     # Upptäck faktisk IP (viktigt vid DHCP)

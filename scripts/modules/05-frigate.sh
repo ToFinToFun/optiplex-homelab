@@ -97,7 +97,7 @@ EOF
     fi
 fi
 
-pct start "${IP_FRIGATE}"
+pct start "${IP_FRIGATE}" || { msg_err "Kunde inte starta container ${IP_FRIGATE}."; return 1 2>/dev/null || exit 1; }
 sleep 5
 
 # Upptäck faktisk IP (viktigt vid DHCP)
@@ -122,7 +122,10 @@ pct exec "${IP_FRIGATE}" -- bash -c "curl -fsSL https://download.docker.com/linu
 pct exec "${IP_FRIGATE}" -- bash -c "chmod a+r /etc/apt/keyrings/docker.gpg"
 pct exec "${IP_FRIGATE}" -- bash -c 'echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null'
 pct exec "${IP_FRIGATE}" -- bash -c "apt-get update -qq > /dev/null 2>&1"
-pct exec "${IP_FRIGATE}" -- bash -c "apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin > /dev/null 2>&1"
+if ! pct exec "${IP_FRIGATE}" -- bash -c "apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin > /dev/null 2>&1"; then
+    msg_err "Docker-installation misslyckades i Frigate-container. Kontrollera nätverket."
+    return 1 2>/dev/null || exit 1
+fi
 
 # Veckovis prune av gamla Docker-images (söndag 03:00) — frigör disk vid uppgraderingar
 pct exec "${IP_FRIGATE}" -- bash -c 'echo "0 3 * * 0 docker image prune -f >> /var/log/docker-prune.log 2>&1" | crontab -'
@@ -194,7 +197,11 @@ $(if [ "$IGPU_OK" == "true" ]; then echo '    devices:
       - "8555:8555/tcp"
       - "8555:8555/udp"
 EOF
-pct push "${IP_FRIGATE}" /tmp/frigate-compose.yml /opt/frigate/docker-compose.yml
+if ! pct push "${IP_FRIGATE}" /tmp/frigate-compose.yml /opt/frigate/docker-compose.yml; then
+    msg_err "Kunde inte överföra docker-compose.yml till Frigate-container."
+    rm -f /tmp/frigate-compose.yml
+    return 1 2>/dev/null || exit 1
+fi
 rm -f /tmp/frigate-compose.yml
 
 if [ "$IGPU_OK" == "true" ]; then
@@ -262,7 +269,11 @@ cameras:
           roles:
             - detect
 EOF
-pct push "${IP_FRIGATE}" /tmp/frigate-config.yml /opt/frigate/config/config.yml
+if ! pct push "${IP_FRIGATE}" /tmp/frigate-config.yml /opt/frigate/config/config.yml; then
+    msg_err "Kunde inte överföra config.yml till Frigate-container."
+    rm -f /tmp/frigate-config.yml
+    return 1 2>/dev/null || exit 1
+fi
 rm -f /tmp/frigate-config.yml
 
 msg_info "Startar Frigate via Docker Compose..."

@@ -32,10 +32,22 @@ if [ -z "$CF_API_TOKEN" ]; then
     exit 0
 fi
 
-DOMAIN=$(ask_string "Din domän (t.ex. example.se)" "")
+DOMAIN=$(ask_string "Din domän (t.ex. example.se)" "${CF_DOMAIN:-}")
 if [ -z "$DOMAIN" ]; then
     msg_warn "Ingen domän angiven. Avbryter."
     exit 0
+fi
+# Spara domänen till setup.env så andra moduler (AdGuard split-DNS) kan använda den
+if [ "$DOMAIN" != "${CF_DOMAIN:-}" ]; then
+    CF_DOMAIN="$DOMAIN"
+    if [ -f setup.env ]; then
+        if grep -q '^CF_DOMAIN=' setup.env; then
+            sed -i "s|^CF_DOMAIN=.*|CF_DOMAIN=\"${DOMAIN}\"|" setup.env
+        else
+            echo "CF_DOMAIN=\"${DOMAIN}\"" >> setup.env
+        fi
+        msg_info "Domän sparad i setup.env (CF_DOMAIN=${DOMAIN})"
+    fi
 fi
 
 # ==========================================

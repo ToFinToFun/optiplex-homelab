@@ -54,7 +54,7 @@ if ! pct create "${IP_IMMICH}" "${TEMPLATE_PATH}" \
     return 1 2>/dev/null || exit 1
 fi
 
-pct start "${IP_IMMICH}"
+pct start "${IP_IMMICH}" || { msg_err "Kunde inte starta container ${IP_IMMICH}."; return 1 2>/dev/null || exit 1; }
 sleep 5
 
 # Upptäck faktisk IP (viktigt vid DHCP)

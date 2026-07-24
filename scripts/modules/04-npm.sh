@@ -35,7 +35,7 @@ if ! pct create "${IP_NPM}" "${TEMPLATE_PATH}" \
     return 1 2>/dev/null || exit 1
 fi
 
-pct start "${IP_NPM}"
+pct start "${IP_NPM}" || { msg_err "Kunde inte starta container ${IP_NPM}."; return 1 2>/dev/null || exit 1; }
 sleep 5
 
 # Upptäck faktisk IP (viktigt vid DHCP)
@@ -55,7 +55,10 @@ pct exec "${IP_NPM}" -- bash -c "curl -fsSL https://download.docker.com/linux/de
 pct exec "${IP_NPM}" -- bash -c "chmod a+r /etc/apt/keyrings/docker.gpg"
 pct exec "${IP_NPM}" -- bash -c 'echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null'
 pct exec "${IP_NPM}" -- bash -c "apt-get update -qq > /dev/null 2>&1"
-pct exec "${IP_NPM}" -- bash -c "apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin > /dev/null 2>&1"
+if ! pct exec "${IP_NPM}" -- bash -c "apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin > /dev/null 2>&1"; then
+    msg_err "Docker-installation misslyckades i NPM-container. Kontrollera nätverket."
+    return 1 2>/dev/null || exit 1
+fi
 
 msg_info "Konfigurerar Nginx Proxy Manager..."
 pct exec "${IP_NPM}" -- bash -c "mkdir -p /opt/npm"
@@ -74,10 +77,17 @@ services:
       - ./data:/data
       - ./letsencrypt:/etc/letsencrypt
 EOF
-pct push "${IP_NPM}" /tmp/npm-compose.yml /opt/npm/docker-compose.yml
+if ! pct push "${IP_NPM}" /tmp/npm-compose.yml /opt/npm/docker-compose.yml; then
+    msg_err "Kunde inte överföra docker-compose.yml till NPM-container."
+    rm -f /tmp/npm-compose.yml
+    return 1 2>/dev/null || exit 1
+fi
 rm -f /tmp/npm-compose.yml
 
 msg_info "Startar NPM via Docker Compose..."
-pct exec "${IP_NPM}" -- bash -c "cd /opt/npm && docker compose up -d" > /dev/null 2>&1
+if ! pct exec "${IP_NPM}" -- bash -c "cd /opt/npm && docker compose up -d" > /dev/null 2>&1; then
+    msg_err "Docker Compose misslyckades. Kontrollera med: pct exec ${IP_NPM} -- docker compose -f /opt/npm/docker-compose.yml logs"
+    return 1 2>/dev/null || exit 1
+fi
 
 msg_ok "Nginx Proxy Manager är igång!"

@@ -45,7 +45,7 @@ if ! pct create "${IP_ADGUARD}" "${TEMPLATE_PATH}" \
     return 1 2>/dev/null || exit 1
 fi
 
-pct start "${IP_ADGUARD}"
+pct start "${IP_ADGUARD}" || { msg_err "Kunde inte starta container ${IP_ADGUARD}."; return 1 2>/dev/null || exit 1; }
 sleep 5
 
 # Upptäck faktisk IP (viktigt vid DHCP)
@@ -94,33 +94,12 @@ done
 msg_info "Konfigurerar AdGuard Home via API..."
 
 # Skapa admin-konto och konfigurera portar
+# /control/install/configure accepterar plaintext-lösenord (AdGuard hashar internt)
 AGH_PASSWORD="${SHARED_PASSWORD:-$CT_PASSWORD}"
 pct exec "${IP_ADGUARD}" -- bash -c "
-    # Generera bcrypt-hash för lösenordet (AdGuard kräver det)
-    # Använd AdGuardHome inbyggda hash-funktion
-    AGH_HASH=\$(./opt/AdGuardHome/AdGuardHome --hash-password '${AGH_PASSWORD}' 2>/dev/null || echo '')
-    
-    # Om hash-funktionen inte finns, använd python
-    if [ -z \"\$AGH_HASH\" ]; then
-        apt-get install -y -qq python3 > /dev/null 2>&1
-        AGH_HASH=\$(python3 -c \"
-import hashlib, os, base64
-password = '${AGH_PASSWORD}'.encode()
-salt = os.urandom(16)
-dk = hashlib.pbkdf2_hmac('sha256', password, salt, 100000)
-print('\\\$2a\\\$10\\\$' + base64.b64encode(salt + dk).decode()[:53])
-\" 2>/dev/null || echo '')
-    fi
-
-    # Kör initial setup via API
-    curl -s -X POST 'http://127.0.0.1:3000/control/install/configure' \
-        -H 'Content-Type: application/json' \
-        -d '{
-            \"web\": {\"port\": 80, \"ip\": \"0.0.0.0\"},
-            \"dns\": {\"port\": 53, \"ip\": \"0.0.0.0\"},
-            \"username\": \"admin\",
-            \"password\": \"${AGH_PASSWORD}\"
-        }' 2>/dev/null
+    curl -s -X POST 'http://127.0.0.1:3000/control/install/configure' \\
+        -H 'Content-Type: application/json' \\
+        -d '{\"web\": {\"port\": 80, \"ip\": \"0.0.0.0\"}, \"dns\": {\"port\": 53, \"ip\": \"0.0.0.0\"}, \"username\": \"admin\", \"password\": \"${AGH_PASSWORD}\"}'
 " 2>/dev/null
 
 # Vänta på omstart efter konfiguration (port 80 nu)
