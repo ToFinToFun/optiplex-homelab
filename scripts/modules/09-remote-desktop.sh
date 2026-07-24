@@ -132,7 +132,6 @@ if [ "$INSTALL_GUAC" == "y" ]; then
     tty_echo ""
     
     # Skapa container
-    local GUAC_NET0
     GUAC_NET0=$(get_net0_param "$GUAC_IP" "$CIDR" "$GATEWAY")
     msg_info "Skapar LXC-container ${IP_GUACAMOLE}..."
     
@@ -358,7 +357,6 @@ if [ "$INSTALL_DESKTOP" == "y" ]; then
     tty_echo ""
     
     # Skapa container (privileged för bättre desktop-stöd)
-    local DESK_NET0
     DESK_NET0=$(get_net0_param "$DESKTOP_IP" "$CIDR" "$GATEWAY")
     msg_info "Skapar LXC-container ${IP_DESKTOP}..."
     
@@ -436,7 +434,7 @@ if [ "$INSTALL_DESKTOP" == "y" ]; then
     # Skapa användare
     msg_info "Skapar användare '${DESKTOP_USER}'..."
     pct exec "${IP_DESKTOP}" -- bash -c "useradd -m -s /bin/bash -G sudo,audio,video '${DESKTOP_USER}'"
-    printf '%s:%s\n' "${DESKTOP_USER}" "${DESKTOP_PASS}" | pct exec "${IP_DESKTOP}" -- chpasswd
+    pct exec "${IP_DESKTOP}" -- bash -c "echo '${DESKTOP_USER}:${DESKTOP_PASS}' | chpasswd"
     
     # Konfigurera xrdp för XFCE
     msg_info "Konfigurerar xrdp för XFCE..."
