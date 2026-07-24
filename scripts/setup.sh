@@ -136,7 +136,7 @@ trap cleanup_on_exit EXIT
 trap 'exit 130' INT TERM
 
 # Totalt antal steg (för progressbar)
-TOTAL_STEPS=14
+TOTAL_STEPS=13
 CURRENT_STEP=0
 
 # ==========================================
@@ -836,6 +836,9 @@ else
                     exit 0
                     ;;
                 A|a)
+                    DO_HOST="y"; DO_HA="y"; DO_CF="y"; DO_ADGUARD="y"; DO_NPM="y"
+                    DO_FRIGATE="y"; DO_CAMERAS="y"; DO_CF_DNS="y"; DO_NPM_CONF="y"; DO_RDP="y"
+                    DO_SAMBA="y"; DO_IMMICH="y"; DO_NUT="y"
                     msg_info "Kör alla steg (befintliga containers skrivs INTE över)."
                     ;;
                 *)
@@ -1152,6 +1155,8 @@ if [ "$DO_ADGUARD" == "y" ]; then
 fi
 
 # 4.5 NPM
+CURRENT_STEP=$((CURRENT_STEP + 1))
+show_progress $CURRENT_STEP $TOTAL_STEPS "Nginx Proxy Manager"
 if [ "$DO_NPM" == "y" ]; then
     print_banner "Nginx Proxy Manager (CT $IP_NPM)" \
 "Reverse proxy som dirigerar trafik internt (HTTP).
@@ -1194,15 +1199,15 @@ Ingen 'Force SSL' ska aktiveras i NPM (orsakar redirect-loop)."
                         -d "{\"name\": \"Administrator\", \"nickname\": \"Admin\", \"email\": \"${NPM_ADMIN_EMAIL:-admin@example.com}\"}" 2>/dev/null)
                     
                     # Byt lösenord separat
-                    curl -s --max-time 10 -X PUT "http://${NPM_IP}:81/api/users/1/auth" \
+                    PW_HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X PUT "http://${NPM_IP}:81/api/users/1/auth" \
                         -H "Content-Type: application/json" \
                         -H "Authorization: Bearer $NPM_TOKEN" \
-                        -d "{\"type\": \"password\", \"current\": \"changeme\", \"secret\": \"${SHARED_PASSWORD}\"}" > /dev/null 2>&1
+                        -d "{\"type\": \"password\", \"current\": \"changeme\", \"secret\": \"${SHARED_PASSWORD}\"}" 2>/dev/null)
                     
-                    if [ $? -eq 0 ]; then
+                    if [ "$PW_HTTP_CODE" == "200" ] || [ "$PW_HTTP_CODE" == "201" ]; then
                         msg_ok "NPM admin-lösenord bytt! Login: ${NPM_ADMIN_EMAIL:-admin@example.com} / (ditt gemensamma lösenord)"
                     else
-                        msg_warn "Kunde inte byta NPM-lösenord automatiskt. Byt manuellt i UI:t."
+                        msg_warn "Kunde inte byta NPM-lösenord (HTTP ${PW_HTTP_CODE}). Byt manuellt i UI:t."
                     fi
                 else
                     msg_warn "Kunde inte logga in i NPM (kanske redan bytt). Kontrollera manuellt."
@@ -1431,14 +1436,19 @@ fi
 # ==========================================
 # TILLÄGG (Samba, Immich, NUT)
 # ==========================================
+CURRENT_STEP=$((CURRENT_STEP + 1))
+show_progress $CURRENT_STEP $TOTAL_STEPS "Tillägg"
 if [ "${DO_SAMBA:-n}" == "y" ]; then
     print_banner "Samba" "Nätverksdelad mapp (filserver för alla enheter i LAN)."
     if [ "$DRY_RUN" == "true" ]; then
         msg_dry "Skulle skapa Samba CT (${IP_SAMBA}) med delad mapp"
     else
+        rollback_register "ct" "${IP_SAMBA:-110}" "Samba"
         if ! bash modules/10-samba.sh "$TEMPLATE_PATH"; then
             msg_err "Samba-installationen avslutades med fel."
+            rollback_offer "${IP_SAMBA:-110}" "Samba"
         else
+            rollback_clear
             set_state samba_configured true
             SAMBA_ACTUAL_IP=$(discover_ct_ip "${IP_SAMBA:-110}" "${NETWORK_PREFIX}.${IP_SAMBA:-110}" 15)
         fi
@@ -1450,9 +1460,12 @@ if [ "${DO_IMMICH:-n}" == "y" ]; then
     if [ "$DRY_RUN" == "true" ]; then
         msg_dry "Skulle skapa Immich CT (${IP_IMMICH}) med Docker + PostgreSQL + ML"
     else
+        rollback_register "ct" "${IP_IMMICH:-111}" "Immich"
         if ! bash modules/11-immich.sh "$TEMPLATE_PATH"; then
             msg_err "Immich-installationen avslutades med fel."
+            rollback_offer "${IP_IMMICH:-111}" "Immich"
         else
+            rollback_clear
             set_state immich_configured true
             IMMICH_ACTUAL_IP=$(discover_ct_ip "${IP_IMMICH:-111}" "${NETWORK_PREFIX}.${IP_IMMICH:-111}" 15)
         fi
@@ -1464,9 +1477,12 @@ if [ "${DO_NUT:-n}" == "y" ]; then
     if [ "$DRY_RUN" == "true" ]; then
         msg_dry "Skulle skapa NUT CT (${IP_NUT}) med USB UPS passthrough"
     else
+        rollback_register "ct" "${IP_NUT:-112}" "NUT"
         if ! bash modules/12-nut.sh "$TEMPLATE_PATH"; then
             msg_err "NUT-installationen avslutades med fel."
+            rollback_offer "${IP_NUT:-112}" "NUT"
         else
+            rollback_clear
             set_state nut_configured true
             NUT_ACTUAL_IP=$(discover_ct_ip "${IP_NUT:-112}" "${NETWORK_PREFIX}.${IP_NUT:-112}" 15)
         fi
