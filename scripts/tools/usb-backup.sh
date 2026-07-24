@@ -27,6 +27,12 @@ IP_HA="${IP_HA:-100}"
 IP_CLOUDFLARED="${IP_CLOUDFLARED:-101}"
 IP_NPM="${IP_NPM:-102}"
 IP_FRIGATE="${IP_FRIGATE:-103}"
+IP_ADGUARD="${IP_ADGUARD:-104}"
+IP_GUACAMOLE="${IP_GUACAMOLE:-107}"
+IP_DESKTOP="${IP_DESKTOP:-108}"
+IP_SAMBA="${IP_SAMBA:-110}"
+IP_IMMICH="${IP_IMMICH:-111}"
+IP_NUT="${IP_NUT:-112}"
 
 # 1. Hitta USB-enheter
 msg_info "Letar efter USB-enheter..."
@@ -93,8 +99,8 @@ if qm status $IP_HA &>/dev/null; then
     fi
 fi
 
-# 6. Hantera LXC (NPM, Cloudflared, Frigate)
-for id in $IP_CLOUDFLARED $IP_NPM $IP_FRIGATE; do
+# 6. Hantera LXC (alla installerade containers)
+for id in $IP_CLOUDFLARED $IP_NPM $IP_FRIGATE $IP_ADGUARD $IP_GUACAMOLE $IP_DESKTOP $IP_SAMBA $IP_IMMICH $IP_NUT; do
     if pct status $id &>/dev/null; then
         BACKUP_IDS="$BACKUP_IDS $id"
     fi
