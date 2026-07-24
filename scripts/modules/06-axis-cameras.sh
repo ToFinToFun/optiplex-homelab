@@ -2,29 +2,41 @@
 source setup.env
 source lib/ui.sh
 source lib/config.sh
+source lib/proxmox.sh
 
 msg_header "Axis Kameror & Frigate Config Generator"
 
 # ============================================================
 # PRE-CHECK: Verifiera att Frigate-containern existerar
+# Använder resolve_ct_id för att hitta containern via hostname
+# (IP_FRIGATE kan vara IP-octet, inte nödvändigtvis CT-ID)
 # ============================================================
+FRIGATE_CT=$(resolve_ct_id "frigate" "${IP_FRIGATE}")
+if [ -z "$FRIGATE_CT" ]; then
+    # Sista fallback: prova standard-ID 103
+    if check_id_exists 103 2>/dev/null; then
+        FRIGATE_CT=103
+    fi
+fi
 FRIGATE_READY=false
+# Hämta faktisk IP från containern (fallback till config-värde)
 FRIGATE_IP="${NETWORK_PREFIX}.${IP_FRIGATE}"
-
-if pct status ${IP_FRIGATE} 2>/dev/null | grep -q "running"; then
+if [ -n "$FRIGATE_CT" ] && pct status ${FRIGATE_CT} 2>/dev/null | grep -q "running"; then
+    _actual_ip=$(pct exec ${FRIGATE_CT} -- hostname -I 2>/dev/null | awk '{print $1}')
+    [ -n "$_actual_ip" ] && FRIGATE_IP="$_actual_ip"
     # Kolla att Docker finns i containern
-    if pct exec ${IP_FRIGATE} -- docker --version &>/dev/null; then
+    if pct exec ${FRIGATE_CT} -- docker --version &>/dev/null; then
         FRIGATE_READY=true
-        msg_ok "Frigate-container (CT ${IP_FRIGATE}) körs med Docker"
+        msg_ok "Frigate-container (CT ${FRIGATE_CT}) körs med Docker"
     else
         msg_warn "Frigate-container körs men Docker saknas inuti!"
         msg_info "Config genereras och sparas lokalt. Pusha manuellt efter Docker-installation."
     fi
-elif pct status ${IP_FRIGATE} &>/dev/null; then
-    msg_warn "Frigate-container (CT ${IP_FRIGATE}) finns men är stoppad."
+elif [ -n "$FRIGATE_CT" ] && pct status ${FRIGATE_CT} &>/dev/null; then
+    msg_warn "Frigate-container (CT ${FRIGATE_CT}) finns men är stoppad."
     msg_info "Config genereras och sparas lokalt. Starta containern och pusha sedan."
 else
-    msg_warn "Frigate-container (CT ${IP_FRIGATE}) finns INTE."
+    msg_warn "Frigate-container (CT ${FRIGATE_CT:-?}) finns INTE."
     msg_info "Config genereras och sparas lokalt. Kör modul 05 (Frigate) först."
 fi
 
@@ -34,9 +46,9 @@ fi
 EXISTING_CONFIG=""
 if [ "$FRIGATE_READY" == "true" ]; then
     # Kolla om config redan finns i containern
-    if pct exec ${IP_FRIGATE} -- test -f /opt/frigate/config/config.yml 2>/dev/null; then
+    if pct exec ${FRIGATE_CT} -- test -f /opt/frigate/config/config.yml 2>/dev/null; then
         # Kolla om det är mer än dummy-config
-        CAMERA_COUNT=$(pct exec ${IP_FRIGATE} -- grep -c "^  [a-z]" /opt/frigate/config/config.yml 2>/dev/null || echo "0")
+        CAMERA_COUNT=$(pct exec ${FRIGATE_CT} -- grep -c "^  [a-z]" /opt/frigate/config/config.yml 2>/dev/null || echo "0")
         if [ "$CAMERA_COUNT" -gt 1 ]; then
             EXISTING_CONFIG="true"
         fi
@@ -59,7 +71,7 @@ if [ -f "/opt/optiplex-homelab/generated/frigate-config.yml" ] || [ "$EXISTING_C
             # Backup befintlig config
             if [ "$FRIGATE_READY" == "true" ] && [ "$EXISTING_CONFIG" == "true" ]; then
                 BACKUP_NAME="config.yml.backup.$(date +%Y%m%d_%H%M%S)"
-                pct exec ${IP_FRIGATE} -- cp /opt/frigate/config/config.yml "/opt/frigate/config/${BACKUP_NAME}" 2>/dev/null
+                pct exec ${FRIGATE_CT} -- cp /opt/frigate/config/config.yml "/opt/frigate/config/${BACKUP_NAME}" 2>/dev/null
                 msg_ok "Backup skapad: /opt/frigate/config/${BACKUP_NAME}"
             fi
             # Fortsätt med full regenerering nedan
@@ -101,23 +113,23 @@ EOF
                 echo "FRIGATE_GEMINI_API_KEY=${GEMINI_UPDATE}" >> "$ENV_TARGET"
             elif [ "$FRIGATE_READY" == "true" ]; then
                 # Behåll befintlig Gemini-nyckel om den finns
-                OLD_GEMINI=$(pct exec ${IP_FRIGATE} -- grep "FRIGATE_GEMINI_API_KEY" /opt/frigate/.env 2>/dev/null | cut -d= -f2)
+                OLD_GEMINI=$(pct exec ${FRIGATE_CT} -- grep "FRIGATE_GEMINI_API_KEY" /opt/frigate/.env 2>/dev/null | cut -d= -f2)
                 [ -n "$OLD_GEMINI" ] && echo "FRIGATE_GEMINI_API_KEY=${OLD_GEMINI}" >> "$ENV_TARGET"
             fi
             
             if [ "$FRIGATE_READY" == "true" ]; then
-                pct push ${IP_FRIGATE} "$ENV_TARGET" /opt/frigate/.env
+                pct push ${FRIGATE_CT} "$ENV_TARGET" /opt/frigate/.env
                 rm -f "$ENV_TARGET"
                 
                 # Starta om Frigate för att läsa nya credentials
                 msg_info "Startar om Frigate..."
-                pct exec ${IP_FRIGATE} -- bash -c "cd /opt/frigate && docker compose down && docker compose up -d" 2>/dev/null
+                pct exec ${FRIGATE_CT} -- bash -c "cd /opt/frigate && docker compose down && docker compose up -d" 2>/dev/null
                 sleep 5
-                if pct exec ${IP_FRIGATE} -- bash -c "docker ps | grep -q frigate" 2>/dev/null; then
+                if pct exec ${FRIGATE_CT} -- bash -c "docker ps | grep -q frigate" 2>/dev/null; then
                     msg_ok "Frigate körs med uppdaterade credentials!"
                 else
                     msg_warn "Frigate verkar inte ha startat. Kolla loggar:"
-                    msg_info "  pct exec ${IP_FRIGATE} -- docker logs frigate --tail 20"
+                    msg_info "  pct exec ${FRIGATE_CT} -- docker logs frigate --tail 20"
                 fi
             else
                 msg_ok "Credentials sparade lokalt: $ENV_TARGET"
@@ -130,7 +142,7 @@ EOF
         *)
             msg_skip "Behåller befintlig konfiguration."
             msg_info "Tips: Redigera config direkt i Frigate UI eller via:"
-            msg_info "  pct exec ${IP_FRIGATE} -- nano /opt/frigate/config/config.yml"
+            msg_info "  pct exec ${FRIGATE_CT} -- nano /opt/frigate/config/config.yml"
             exit 0
             ;;
     esac
@@ -645,18 +657,18 @@ tty_echo "  ${GREEN}╚═══════════════════
 tty_echo ""
 
 if [ "$FRIGATE_READY" == "true" ]; then
-    if ask_yes_no "Vill du pusha konfigurationen till Frigate-containern (CT ${IP_FRIGATE}) nu?" "Y"; then
+    if ask_yes_no "Vill du pusha konfigurationen till Frigate-containern (CT ${FRIGATE_CT}) nu?" "Y"; then
         msg_info "Pushar config.yml och .env till Frigate..."
         
-        pct push ${IP_FRIGATE} "$CONFIG_OUTPUT" /opt/frigate/config/config.yml
-        pct push ${IP_FRIGATE} "$ENV_OUTPUT" /opt/frigate/.env
+        pct push ${FRIGATE_CT} "$CONFIG_OUTPUT" /opt/frigate/config/config.yml
+        pct push ${FRIGATE_CT} "$ENV_OUTPUT" /opt/frigate/.env
         
         # Starta om Frigate
         msg_info "Startar om Frigate för att tillämpa ny konfiguration..."
-        pct exec ${IP_FRIGATE} -- bash -c "cd /opt/frigate && docker compose down && docker compose up -d" 2>/dev/null
+        pct exec ${FRIGATE_CT} -- bash -c "cd /opt/frigate && docker compose down && docker compose up -d" 2>/dev/null
         
         sleep 5
-        if pct exec ${IP_FRIGATE} -- bash -c "docker ps | grep -q frigate" 2>/dev/null; then
+        if pct exec ${FRIGATE_CT} -- bash -c "docker ps | grep -q frigate" 2>/dev/null; then
             msg_ok "Frigate körs med ny konfiguration!"
             
             # MQTT-status varning
@@ -669,12 +681,12 @@ if [ "$FRIGATE_READY" == "true" ]; then
             fi
         else
             msg_warn "Frigate verkar inte ha startat korrekt. Kolla loggar:"
-            msg_info "  pct exec ${IP_FRIGATE} -- docker logs frigate --tail 50"
+            msg_info "  pct exec ${FRIGATE_CT} -- docker logs frigate --tail 50"
         fi
     else
         msg_info "Config sparad lokalt. Du kan pusha manuellt:"
-        msg_info "  pct push ${IP_FRIGATE} ${CONFIG_OUTPUT} /opt/frigate/config/config.yml"
-        msg_info "  pct push ${IP_FRIGATE} ${ENV_OUTPUT} /opt/frigate/.env"
+        msg_info "  pct push ${FRIGATE_CT} ${CONFIG_OUTPUT} /opt/frigate/config/config.yml"
+        msg_info "  pct push ${FRIGATE_CT} ${ENV_OUTPUT} /opt/frigate/.env"
     fi
 else
     # Spara lokalt
@@ -688,9 +700,9 @@ else
     msg_info "  Env:    ${SAVE_DIR}/frigate.env"
     msg_info ""
     msg_info "När Frigate-containern är igång, pusha med:"
-    msg_info "  pct push ${IP_FRIGATE} ${SAVE_DIR}/frigate-config.yml /opt/frigate/config/config.yml"
-    msg_info "  pct push ${IP_FRIGATE} ${SAVE_DIR}/frigate.env /opt/frigate/.env"
-    msg_info "  pct exec ${IP_FRIGATE} -- bash -c 'cd /opt/frigate && docker compose restart'"
+    msg_info "  pct push ${FRIGATE_CT} ${SAVE_DIR}/frigate-config.yml /opt/frigate/config/config.yml"
+    msg_info "  pct push ${FRIGATE_CT} ${SAVE_DIR}/frigate.env /opt/frigate/.env"
+    msg_info "  pct exec ${FRIGATE_CT} -- bash -c 'cd /opt/frigate && docker compose restart'"
 fi
 
 # Cleanup temp

@@ -14,8 +14,11 @@ echo -e "${CYAN}║${NC} ${YELLOW}Cloudflare Tunnel hanterar TLS/HTTPS externt.$
 echo -e "${CYAN}║${NC} ${YELLOW}NPM ska INTE ha Force SSL eller egna certifikat.${NC}              ${CYAN}║${NC}"
 echo -e "${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}\n"
 
-if ! pct status $IP_NPM &>/dev/null; then
-    msg_skip "NPM (CT $IP_NPM) är inte installerad eller igång."
+# Resolve faktiska CT-ID:n (IP_* kan vara IP-octet, inte CT-ID)
+NPM_CT=$(resolve_ct_id "npm" "$IP_NPM")
+[ -z "$NPM_CT" ] && NPM_CT="$IP_NPM"
+if ! pct status $NPM_CT &>/dev/null; then
+    msg_skip "NPM (CT $NPM_CT) är inte installerad eller igång."
     exit 0
 fi
 
@@ -31,7 +34,9 @@ if [ -z "$DOMAIN" ]; then
 fi
 
 msg_info "Hämtar API-token från NPM..."
-NPM_IP="${NETWORK_PREFIX}.${IP_NPM}"
+# Hämta faktisk NPM-IP från containern
+NPM_IP=$(pct exec $NPM_CT -- hostname -I 2>/dev/null | awk '{print $1}')
+[ -z "$NPM_IP" ] && NPM_IP="${NETWORK_PREFIX}.${IP_NPM}"
 
 # Försök logga in med gemensamt lösenord (om det redan bytts av setup.sh)
 # Fallback till default-credentials
@@ -133,18 +138,20 @@ except: pass
 fi
 [ -z "$HA_ACTUAL_IP" ] && HA_ACTUAL_IP="${NETWORK_PREFIX}.${IP_HA}"
 
-if check_id_exists $IP_HA; then
+if [ -n "$HA_VM_ID" ]; then
     create_proxy_host "ha" "$HA_ACTUAL_IP" 8123 true
 fi
 
 # Frigate
+FRIG_CT=$(resolve_ct_id "frigate" "$IP_FRIGATE")
 FRIG_ACTUAL_IP=$(_get_actual_ip "frigate" "$IP_FRIGATE")
-if check_id_exists $IP_FRIGATE; then
+if [ -n "$FRIG_CT" ]; then
     create_proxy_host "frigate" "$FRIG_ACTUAL_IP" 5000 true
 fi
 
 # Guacamole (om installerad)
-if [ -n "${IP_GUACAMOLE}" ] && check_id_exists $IP_GUACAMOLE 2>/dev/null; then
+GUAC_CT=$(resolve_ct_id "guacamole" "${IP_GUACAMOLE:-}")
+if [ -n "$GUAC_CT" ]; then
     GUAC_ACTUAL_IP=$(_get_actual_ip "guacamole" "$IP_GUACAMOLE")
     create_proxy_host "rdp" "$GUAC_ACTUAL_IP" 8080 true
 fi
